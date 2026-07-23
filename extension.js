@@ -181,7 +181,7 @@ class SavedDesksIndicator extends PanelMenu.Button {
         this.buildMenu();
     }
 
-    buildMenu() {
+    async buildMenu() {
         this.menu.removeAll();
 
         const saveItem = new PopupMenu.PopupMenuItem(_('Save current desk'));
@@ -194,7 +194,7 @@ class SavedDesksIndicator extends PanelMenu.Button {
 
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        const desks = this._deskManager.getDesks();
+        const desks = await this._deskManager.getDesks();
         const names = Object.keys(desks);
 
         if (names.length === 0) {
@@ -322,43 +322,53 @@ class DeskManager {
         }
     }
 
-    getDesks() {
+    async getDesks() {
         const filePath = this._getFilePath();
         const file = Gio.File.new_for_path(filePath);
-        if (file.query_exists(null)) {
-            try {
-                const [ok, contents] = file.load_contents(null);
-                if (ok) {
-                    const decoder = new TextDecoder();
-                    const data = JSON.parse(decoder.decode(contents));
-                    return data.desks || {};
+        return new Promise((resolve) => {
+            file.load_contents_async(null, (_file, res) => {
+                try {
+                    const [ok, contents] = file.load_contents_finish(res);
+                    if (ok && contents) {
+                        const decoder = new TextDecoder();
+                        const data = JSON.parse(decoder.decode(contents));
+                        resolve(data.desks || {});
+                        return;
+                    }
+                } catch (e) {
+                    // File does not exist or cannot be read
                 }
-            } catch (e) {
-                logError('Error reading desks file', e);
-            }
-        }
-        return {};
+                resolve({});
+            });
+        });
     }
 
-    saveDesks(desks) {
+    async saveDesks(desks) {
         const filePath = this._getFilePath();
         const file = Gio.File.new_for_path(filePath);
         const jsonStr = JSON.stringify({ desks }, null, 2);
-        try {
-            file.replace_contents(jsonStr, null, false, Gio.FileCreateFlags.NONE, null);
-        } catch (e) {
-            logError('Error writing desks file', e);
-        }
-        if (this._indicator)
-            this._indicator.buildMenu();
+        const bytes = new GLib.Bytes(jsonStr);
+
+        return new Promise((resolve) => {
+            file.replace_contents_bytes_async(bytes, null, false, Gio.FileCreateFlags.NONE, null, (_file, res) => {
+                try {
+                    file.replace_contents_finish(res);
+                } catch (e) {
+                    logError('Error writing desks file', e);
+                }
+                if (this._indicator)
+                    this._indicator.buildMenu();
+                resolve();
+            });
+        });
     }
 
     saveCurrentWorkspace() {
         if (this._activeDialog) {
             this._activeDialog.close();
         }
-        this._activeDialog = new SaveDeskDialog((name) => {
-            this._doSaveCurrentWorkspace(name);
+        this._activeDialog = new SaveDeskDialog(async (name) => {
+            await this._doSaveCurrentWorkspace(name);
         });
         this._activeDialog.open();
     }
@@ -470,7 +480,7 @@ class DeskManager {
         return score;
     }
 
-    _doSaveCurrentWorkspace(name) {
+    async _doSaveCurrentWorkspace(name) {
         const activeWs = global.workspace_manager.get_active_workspace();
         const windows = activeWs.list_windows();
 
@@ -538,21 +548,21 @@ class DeskManager {
             });
         }
 
-        const desks = this.getDesks();
+        const desks = await this.getDesks();
         desks[name] = savedApps;
-        this.saveDesks(desks);
+        await this.saveDesks(desks);
     }
 
-    manageDesks() {
+    async manageDesks() {
         if (this._activeDialog) {
             this._activeDialog.close();
         }
-        const desks = this.getDesks();
-        this._activeDialog = new ManageDesksDialog(desks, (nameToDelete) => {
-            const currentDesks = this.getDesks();
+        const desks = await this.getDesks();
+        this._activeDialog = new ManageDesksDialog(desks, async (nameToDelete) => {
+            const currentDesks = await this.getDesks();
             if (currentDesks[nameToDelete]) {
                 delete currentDesks[nameToDelete];
-                this.saveDesks(currentDesks);
+                await this.saveDesks(currentDesks);
             }
         });
         this._activeDialog.open();
@@ -607,8 +617,8 @@ class DeskManager {
         return false;
     }
 
-    loadDesk(name) {
-        const desks = this.getDesks();
+    async loadDesk(name) {
+        const desks = await this.getDesks();
         const savedApps = desks[name];
         if (!savedApps || savedApps.length === 0)
             return;
