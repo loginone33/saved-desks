@@ -54,7 +54,11 @@ class SaveDeskDialog extends ModalDialog.ModalDialog {
             action: () => {
                 const name = this._entry.get_text().trim();
                 if (name) {
-                    this._onSave(name);
+                    try {
+                        this._onSave(name);
+                    } catch (e) {
+                        console.error(`[SavedDesks] Error saving desk: ${e.message}`, e);
+                    }
                     this.close();
                 }
             },
@@ -247,14 +251,49 @@ class DeskManager {
         return GLib.build_filenamev([GLib.get_user_config_dir(), 'gnome-saved-desks.json']);
     }
 
+    _getTileMode(window) {
+        if (!window)
+            return 0;
+        if (typeof window.get_tile_mode === 'function') {
+            try {
+                return window.get_tile_mode();
+            } catch (e) {}
+        }
+        if (typeof window.tile_mode === 'number')
+            return window.tile_mode;
+        return 0;
+    }
+
+    _getMaximizedState(window) {
+        if (!window)
+            return 0;
+        if (typeof window.maximized === 'number')
+            return window.maximized;
+        if (typeof window.get_maximized === 'function') {
+            try {
+                return window.get_maximized();
+            } catch (e) {}
+        }
+        return 0;
+    }
+
+    _isMaximized(window) {
+        const flags = this._getMaximizedState(window);
+        return flags === Meta.MaximizeFlags.BOTH || (flags & Meta.MaximizeFlags.BOTH) === Meta.MaximizeFlags.BOTH;
+    }
+
     getDesks() {
         const filePath = this._getFilePath();
         if (GLib.file_test(filePath, GLib.FileTest.EXISTS)) {
-            const [ok, contents] = GLib.file_get_contents(filePath);
-            if (ok) {
-                const decoder = new TextDecoder();
-                const data = JSON.parse(decoder.decode(contents));
-                return data.desks || {};
+            try {
+                const [ok, contents] = GLib.file_get_contents(filePath);
+                if (ok) {
+                    const decoder = new TextDecoder();
+                    const data = JSON.parse(decoder.decode(contents));
+                    return data.desks || {};
+                }
+            } catch (e) {
+                console.error(`[SavedDesks] Error reading desks file: ${e.message}`);
             }
         }
         return {};
@@ -278,9 +317,119 @@ class DeskManager {
         this._activeDialog.open();
     }
 
+    _calculateMatchScore(window, pending) {
+        if (!window || !pending)
+            return -9999;
+
+        const app = Shell.WindowTracker.get_default().get_window_app(window);
+        const winAppId = app ? (app.get_id() || '') : '';
+        const winWmClass = typeof window.get_wm_class === 'function' ? (window.get_wm_class() || '') : (window.wm_class || '');
+        const winWmInst = typeof window.get_wm_class_instance === 'function' ? (window.get_wm_class_instance() || '') : '';
+        const winGtkId = typeof window.get_gtk_application_id === 'function' ? (window.get_gtk_application_id() || '') : '';
+        const winSandboxId = typeof window.get_sandboxed_app_id === 'function' ? (window.get_sandboxed_app_id() || '') : '';
+        const winTitle = typeof window.get_title === 'function' ? (window.get_title() || '') : '';
+
+        const targetAppId = pending.appId || '';
+        const targetWmClass = pending.wmClass || '';
+        const targetWmInst = pending.wmClassInstance || '';
+        const targetTitle = pending.title || '';
+
+        let score = 0;
+
+        const winAppIdClean = winAppId.toLowerCase();
+        const targetAppIdClean = targetAppId.toLowerCase();
+        const winWmClassClean = winWmClass.toLowerCase();
+        const targetWmClassClean = targetWmClass.toLowerCase();
+        const winWmInstClean = winWmInst.toLowerCase();
+        const targetWmInstClean = targetWmInst.toLowerCase();
+
+        // 1. Chrome PWA Hash matching (32-character hash)
+        const extractPwaHash = (str) => {
+            if (!str) return null;
+            const m = str.match(/chrome-([a-z0-9]{32})/i) || str.match(/([a-z0-9]{32})/i);
+            return m ? m[1].toLowerCase() : null;
+        };
+
+        const winPwaHash = extractPwaHash(`${winAppIdClean} ${winWmClassClean} ${winWmInstClean} ${winTitle}`);
+        const targetPwaHash = extractPwaHash(`${targetAppIdClean} ${targetWmClassClean} ${targetWmInstClean} ${targetTitle}`);
+
+        if (targetPwaHash) {
+            if (winPwaHash && winPwaHash === targetPwaHash) {
+                score += 3000;
+            } else if (winPwaHash && winPwaHash !== targetPwaHash) {
+                return -5000;
+            }
+        }
+
+        if (winAppIdClean && targetAppIdClean && winAppIdClean === targetAppIdClean) {
+            score += 1000;
+        }
+
+        if (winWmClassClean && targetWmClassClean && winWmClassClean === targetWmClassClean) {
+            score += 800;
+        }
+
+        if (winWmInstClean && targetWmInstClean && winWmInstClean === targetWmInstClean) {
+            score += 800;
+        }
+
+        if (winGtkId && (winGtkId.toLowerCase() === targetAppIdClean || winGtkId.toLowerCase() === targetWmClassClean)) {
+            score += 600;
+        }
+
+        if (winSandboxId && (winSandboxId.toLowerCase() === targetAppIdClean || winSandboxId.toLowerCase() === targetWmClassClean)) {
+            score += 600;
+        }
+
+        // 2. LibreOffice and Sub-App specific matching
+        const subApps = ['calc', 'writer', 'impress', 'draw', 'math', 'base'];
+        const winText = `${winAppIdClean} ${winWmClassClean} ${winWmInstClean} ${winTitle.toLowerCase()}`;
+        const targetText = `${targetAppIdClean} ${targetWmClassClean} ${targetWmInstClean} ${targetTitle.toLowerCase()}`;
+
+        const isLibreOffice = winText.includes('libreoffice') || winText.includes('soffice') || targetText.includes('libreoffice') || targetText.includes('soffice');
+
+        if (isLibreOffice) {
+            for (const sub of subApps) {
+                const winHasSub = winText.includes(sub) || (sub === 'calc' && winText.includes('kalk'));
+                const targetHasSub = targetText.includes(sub) || (sub === 'calc' && targetText.includes('kalk'));
+
+                if (targetHasSub) {
+                    if (winHasSub) {
+                        score += 1500;
+                    } else {
+                        const winHasAnySub = subApps.some(s => winText.includes(s) || (s === 'calc' && winText.includes('kalk')));
+                        if (winHasAnySub) {
+                            return -4000;
+                        } else {
+                            score += 100;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (score === 0) {
+            const targetBase = targetAppIdClean.replace(/\.desktop$/, '').split('.').pop();
+            const winBase = winAppIdClean.replace(/\.desktop$/, '').split('.').pop() || winWmClassClean;
+
+            if (targetBase && winBase && targetBase.length > 3 && winBase.length > 3) {
+                if (targetBase === winBase) {
+                    score += 300;
+                } else if (targetBase.includes(winBase) || winBase.includes(targetBase)) {
+                    score += 150;
+                }
+            }
+        }
+
+        return score;
+    }
+
     _doSaveCurrentWorkspace(name) {
         const activeWs = global.workspace_manager.get_active_workspace();
         const windows = activeWs.list_windows();
+
+        const TILE_LEFT = Meta.TileMode ? Meta.TileMode.LEFT : 1;
+        const TILE_RIGHT = Meta.TileMode ? Meta.TileMode.RIGHT : 2;
 
         const savedApps = [];
         for (const window of windows) {
@@ -289,20 +438,22 @@ class DeskManager {
 
             const app = Shell.WindowTracker.get_default().get_window_app(window);
             let appId = app ? app.get_id() : null;
+            const wmClass = typeof window.get_wm_class === 'function' ? window.get_wm_class() : (window.wm_class || '');
+            const wmClassInstance = typeof window.get_wm_class_instance === 'function' ? window.get_wm_class_instance() : '';
+            const title = typeof window.get_title === 'function' ? (window.get_title() || '') : '';
 
-            if (!appId) {
-                const wmClass = window.get_wm_class();
-                if (wmClass)
-                    appId = `${wmClass.toLowerCase()}.desktop`;
-                else
-                    continue;
+            if (!appId && wmClass) {
+                appId = `${wmClass.toLowerCase()}.desktop`;
             }
+
+            if (!appId)
+                continue;
 
             const rect = window.get_frame_rect();
             const workArea = window.get_work_area_current_monitor();
 
             let tileState = 'normal';
-            const maxFlags = window.get_maximized();
+            const maxFlags = this._getMaximizedState(window);
 
             if (maxFlags === Meta.MaximizeFlags.BOTH) {
                 tileState = 'maximized';
@@ -310,20 +461,29 @@ class DeskManager {
                 const centerX = rect.x + rect.width / 2;
                 const workCenterX = workArea.x + workArea.width / 2;
                 const isVertMax = (maxFlags & Meta.MaximizeFlags.VERTICAL) !== 0;
-                const matchesLeftWidth = Math.abs(rect.width - workArea.width / 2) < 60;
-                const matchesFullHeight = Math.abs(rect.height - workArea.height) < 60;
-                const isLeftPos = rect.x < (workArea.x + 60);
-                const isRightPos = Math.abs((rect.x + rect.width) - (workArea.x + workArea.width)) < 60;
+                const matchesLeftWidth = Math.abs(rect.width - workArea.width / 2) < 80;
+                const matchesFullHeight = Math.abs(rect.height - workArea.height) < 80;
+                const isLeftPos = rect.x < (workArea.x + 80);
+                const isRightPos = Math.abs((rect.x + rect.width) - (workArea.x + workArea.width)) < 80;
 
-                if (window.tile_mode === Meta.TileMode?.LEFT || (isVertMax && centerX < workCenterX) || (matchesLeftWidth && matchesFullHeight && isLeftPos)) {
+                const tileMode = this._getTileMode(window);
+
+                if (tileMode === TILE_LEFT || (matchesLeftWidth && matchesFullHeight && isLeftPos)) {
                     tileState = 'left';
-                } else if (window.tile_mode === Meta.TileMode?.RIGHT || (isVertMax && centerX >= workCenterX) || (matchesLeftWidth && matchesFullHeight && isRightPos)) {
+                } else if (tileMode === TILE_RIGHT || (matchesLeftWidth && matchesFullHeight && isRightPos)) {
+                    tileState = 'right';
+                } else if (isVertMax && centerX < workCenterX) {
+                    tileState = 'left';
+                } else if (isVertMax && centerX >= workCenterX) {
                     tileState = 'right';
                 }
             }
 
             savedApps.push({
                 appId,
+                wmClass,
+                wmClassInstance,
+                title,
                 tileState,
                 relX: (rect.x - workArea.x) / workArea.width,
                 relY: (rect.y - workArea.y) / workArea.height,
@@ -352,6 +512,55 @@ class DeskManager {
         this._activeDialog.open();
     }
 
+    _launchApp(appId) {
+        if (!appId)
+            return false;
+
+        const appSys = Shell.AppSystem.get_default();
+        let app = appSys.lookup_app(appId);
+
+        if (!app && !appId.endsWith('.desktop')) {
+            app = appSys.lookup_app(`${appId}.desktop`);
+        }
+
+        if (app) {
+            app.open_new_window(-1);
+            return true;
+        }
+
+        const idsToTry = [appId];
+        if (!appId.endsWith('.desktop')) {
+            idsToTry.push(`${appId}.desktop`);
+        }
+        if (appId.includes('flextop.')) {
+            const shortId = appId.replace(/.*flextop\./, '');
+            idsToTry.push(shortId);
+            if (!shortId.endsWith('.desktop')) {
+                idsToTry.push(`${shortId}.desktop`);
+            }
+        }
+
+        for (const id of idsToTry) {
+            let appInfo = Gio.DesktopAppInfo.new(id);
+            if (appInfo) {
+                appInfo.launch([], null);
+                return true;
+            }
+
+            const userAppsDir = GLib.build_filenamev([GLib.get_user_data_dir(), 'applications', id]);
+            if (GLib.file_test(userAppsDir, GLib.FileTest.EXISTS)) {
+                const userAppInfo = Gio.DesktopAppInfo.new_from_filename(userAppsDir);
+                if (userAppInfo) {
+                    userAppInfo.launch([], null);
+                    return true;
+                }
+            }
+        }
+
+        console.error(`[SavedDesks] Could not launch app with ID: ${appId}`);
+        return false;
+    }
+
     loadDesk(name) {
         const desks = this.getDesks();
         const savedApps = desks[name];
@@ -362,65 +571,141 @@ class DeskManager {
         ws.activate(global.get_current_time());
 
         const now = GLib.get_monotonic_time();
-        for (const savedApp of savedApps) {
+        for (let i = 0; i < savedApps.length; i++) {
+            const savedApp = savedApps[i];
             this._pendingRestorations.push({
                 ...savedApp,
                 workspace: ws,
                 timestamp: now,
             });
 
-            const app = Shell.AppSystem.get_default().lookup_app(savedApp.appId);
-            if (app) {
-                app.open_new_window(-1);
-            } else {
-                const appInfo = Gio.DesktopAppInfo.new(savedApp.appId);
-                if (appInfo)
-                    appInfo.launch([], null);
-            }
+            this._addTimeout(i * 200, () => {
+                this._launchApp(savedApp.appId);
+                return GLib.SOURCE_REMOVE;
+            });
         }
     }
 
     _onWindowCreated(window) {
-        if (window.window_type !== Meta.WindowType.NORMAL)
+        if (!window || window.window_type !== Meta.WindowType.NORMAL)
             return;
+
+        this._tryMatchAndApply(window);
+    }
+
+    _tryMatchAndApply(window) {
+        if (!window || window.get_workspace() === null)
+            return false;
 
         const now = GLib.get_monotonic_time();
-        this._pendingRestorations = this._pendingRestorations.filter(p => (now - p.timestamp) < 15000000);
+        this._pendingRestorations = this._pendingRestorations.filter(p => (now - p.timestamp) < 30000000);
         if (this._pendingRestorations.length === 0)
+            return false;
+
+        let bestIndex = -1;
+        let bestScore = -9999;
+
+        for (let i = 0; i < this._pendingRestorations.length; i++) {
+            const score = this._calculateMatchScore(window, this._pendingRestorations[i]);
+            if (score > bestScore) {
+                bestScore = score;
+                bestIndex = i;
+            }
+        }
+
+        let pending = null;
+        if (bestIndex !== -1 && bestScore >= 500) {
+            pending = this._pendingRestorations[bestIndex];
+            this._pendingRestorations.splice(bestIndex, 1);
+        } else if (this._pendingRestorations.length === 1 && bestScore >= 100) {
+            pending = this._pendingRestorations.shift();
+        }
+
+        if (pending) {
+            this._disconnectWindowSignals(window);
+            this._moveAndApply(window, pending);
+            return true;
+        }
+
+        if (!window._savedDesksSignalsAttached) {
+            window._savedDesksSignalsAttached = true;
+
+            const titleId = window.connect('notify::title', () => {
+                if (this._tryMatchAndApply(window)) {
+                    this._disconnectWindowSignals(window);
+                }
+            });
+            const wmClassId = window.connect('notify::wm-class', () => {
+                if (this._tryMatchAndApply(window)) {
+                    this._disconnectWindowSignals(window);
+                }
+            });
+
+            window._savedDesksTitleId = titleId;
+            window._savedDesksWmClassId = wmClassId;
+
+            const retries = [50, 150, 300, 600, 1200, 2000];
+            for (const delay of retries) {
+                this._addTimeout(delay, () => {
+                    if (this._tryMatchAndApply(window)) {
+                        this._disconnectWindowSignals(window);
+                    }
+                    return GLib.SOURCE_REMOVE;
+                });
+            }
+        }
+
+        return false;
+    }
+
+    _disconnectWindowSignals(window) {
+        if (!window || !window._savedDesksSignalsAttached)
             return;
 
-        const app = Shell.WindowTracker.get_default().get_window_app(window);
-        const appId = app ? app.get_id() : null;
-        const wmClass = window.get_wm_class();
-        const wmClassDesktop = wmClass ? `${wmClass.toLowerCase()}.desktop` : null;
+        if (window._savedDesksTitleId) {
+            try { window.disconnect(window._savedDesksTitleId); } catch (e) {}
+            window._savedDesksTitleId = null;
+        }
+        if (window._savedDesksWmClassId) {
+            try { window.disconnect(window._savedDesksWmClassId); } catch (e) {}
+            window._savedDesksWmClassId = null;
+        }
+        window._savedDesksSignalsAttached = false;
+    }
 
-        const index = this._pendingRestorations.findIndex(p => {
-            return (appId && p.appId === appId) || (wmClassDesktop && p.appId === wmClassDesktop);
-        });
-
-        if (index === -1)
-            return;
-
-        const pending = this._pendingRestorations[index];
-        this._pendingRestorations.splice(index, 1);
-
-        window.change_workspace(pending.workspace);
+    _moveAndApply(window, pending) {
+        try {
+            window.change_workspace(pending.workspace);
+        } catch (e) {
+            console.error(`[SavedDesks] Error moving window workspace: ${e.message}`);
+        }
 
         const scheduleGeometry = () => {
-            this._applyGeometry(window, pending);
+            try {
+                this._applyGeometry(window, pending);
+            } catch (e) {
+                console.error(`[SavedDesks] Error in _applyGeometry: ${e.message}`);
+            }
         };
 
+        scheduleGeometry();
         this._addTimeout(50, () => {
             scheduleGeometry();
             return GLib.SOURCE_REMOVE;
         });
-
-        this._addTimeout(250, () => {
+        this._addTimeout(200, () => {
             scheduleGeometry();
             return GLib.SOURCE_REMOVE;
         });
-
-        this._addTimeout(600, () => {
+        this._addTimeout(500, () => {
+            scheduleGeometry();
+            return GLib.SOURCE_REMOVE;
+        });
+        this._addTimeout(1000, () => {
+            scheduleGeometry();
+            return GLib.SOURCE_REMOVE;
+        });
+        this._addTimeout(2000, () => {
             scheduleGeometry();
             return GLib.SOURCE_REMOVE;
         });
@@ -430,44 +715,70 @@ class DeskManager {
         if (!window || window.get_workspace() === null)
             return;
 
+        const TILE_NONE = Meta.TileMode ? Meta.TileMode.NONE : 0;
+        const TILE_LEFT = Meta.TileMode ? Meta.TileMode.LEFT : 1;
+        const TILE_RIGHT = Meta.TileMode ? Meta.TileMode.RIGHT : 2;
+
         const workArea = window.get_work_area_current_monitor();
+        const isMaximized = this._isMaximized(window);
+        const currentTileMode = this._getTileMode(window);
 
         if (pending.tileState === 'maximized') {
-            if (!window.is_maximized())
+            if (!isMaximized)
                 window.maximize(Meta.MaximizeFlags.BOTH);
         } else if (pending.tileState === 'left') {
-            if (window.is_maximized())
+            if (isMaximized)
                 window.unmaximize(Meta.MaximizeFlags.BOTH);
 
-            const targetX = workArea.x;
-            const targetY = workArea.y;
-            const targetW = Math.round(workArea.width / 2);
-            const targetH = workArea.height;
-
-            window.move_resize_frame(true, targetX, targetY, targetW, targetH);
-            if (window.tile) {
-                try {
-                    window.tile(Meta.TileMode.LEFT, false);
-                } catch (e) {}
+            if (currentTileMode !== TILE_LEFT) {
+                let tileSuccess = false;
+                if (typeof window.tile === 'function') {
+                    try {
+                        window.tile(TILE_LEFT);
+                        tileSuccess = true;
+                    } catch (e) {
+                        console.error(`[SavedDesks] Error tiling left: ${e.message}`);
+                    }
+                }
+                if (!tileSuccess) {
+                    const targetX = workArea.x;
+                    const targetY = workArea.y;
+                    const targetW = Math.round(workArea.width / 2);
+                    const targetH = workArea.height;
+                    window.move_resize_frame(true, targetX, targetY, targetW, targetH);
+                }
             }
         } else if (pending.tileState === 'right') {
-            if (window.is_maximized())
+            if (isMaximized)
                 window.unmaximize(Meta.MaximizeFlags.BOTH);
 
-            const targetX = workArea.x + Math.round(workArea.width / 2);
-            const targetY = workArea.y;
-            const targetW = Math.round(workArea.width / 2);
-            const targetH = workArea.height;
-
-            window.move_resize_frame(true, targetX, targetY, targetW, targetH);
-            if (window.tile) {
-                try {
-                    window.tile(Meta.TileMode.RIGHT, false);
-                } catch (e) {}
+            if (currentTileMode !== TILE_RIGHT) {
+                let tileSuccess = false;
+                if (typeof window.tile === 'function') {
+                    try {
+                        window.tile(TILE_RIGHT);
+                        tileSuccess = true;
+                    } catch (e) {
+                        console.error(`[SavedDesks] Error tiling right: ${e.message}`);
+                    }
+                }
+                if (!tileSuccess) {
+                    const targetX = workArea.x + Math.round(workArea.width / 2);
+                    const targetY = workArea.y;
+                    const targetW = Math.round(workArea.width / 2);
+                    const targetH = workArea.height;
+                    window.move_resize_frame(true, targetX, targetY, targetW, targetH);
+                }
             }
         } else {
-            if (window.is_maximized())
+            if (isMaximized)
                 window.unmaximize(Meta.MaximizeFlags.BOTH);
+
+            if (currentTileMode !== TILE_NONE && typeof window.tile === 'function') {
+                try {
+                    window.tile(TILE_NONE);
+                } catch (e) {}
+            }
 
             const targetX = Math.round(workArea.x + pending.relX * workArea.width);
             const targetY = Math.round(workArea.y + pending.relY * workArea.height);

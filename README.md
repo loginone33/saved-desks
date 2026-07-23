@@ -23,7 +23,7 @@
 
 ## Compatibility
 
-- **GNOME Shell**: 45, 46, 47, 48
+- **GNOME Shell**: 45, 46, 47, 48, 49, 50
 - **Session**: Wayland & X11
 
 ---
@@ -53,6 +53,16 @@
 3. **Managing**: Select **Manage desks** from the panel menu to remove desks you no longer need.
 
 Configuration data is saved locally at `~/.config/gnome-saved-desks.json`.
+
+---
+
+## Support & Donations
+
+If you like this extension and want to support its ongoing development, feel free to buy me a coffee!
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-yellow.svg)](https://buymeacoffee.com/loginone)
+
+- **Buy Me A Coffee**: [buymeacoffee.com/loginone](https://buymeacoffee.com/loginone)
 
 ---
 
