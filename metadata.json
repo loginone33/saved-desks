@@ -1,0 +1,8 @@
+{
+  "name": "Saved Desks",
+  "description": "Save and restore window layouts on individual workspaces, similar to ChromeOS Saved Desks.",
+  "uuid": "saved-desks@loginone",
+  "version": 4,
+  "shell-version": [ "45", "46", "47", "48" ],
+  "url": "https://github.com/loginone33/saved-desks"
+}
