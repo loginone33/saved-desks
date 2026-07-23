@@ -1,4 +1,4 @@
-import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
+import { Extension, gettext as _ } from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as ModalDialog from 'resource:///org/gnome/shell/ui/modalDialog.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
@@ -23,19 +23,19 @@ class SaveDeskDialog extends ModalDialog.ModalDialog {
         });
 
         const title = new St.Label({
-            text: 'Save Current Desk',
+            text: _('Save Current Desk'),
             style: 'font-weight: bold; font-size: 1.1em;',
         });
         content.add_child(title);
 
         const desc = new St.Label({
-            text: 'Enter a name for the new desk:',
+            text: _('Enter a name for the new desk:'),
             style: 'margin-top: 4px; margin-bottom: 4px;',
         });
         content.add_child(desc);
 
         this._entry = new St.Entry({
-            hint_text: 'e.g. Work, Project...',
+            hint_text: _('e.g. Work, Project...'),
             can_focus: true,
             style: 'padding: 6px;',
         });
@@ -44,13 +44,13 @@ class SaveDeskDialog extends ModalDialog.ModalDialog {
         this.contentLayout.add_child(content);
 
         this.addButton({
-            label: 'Cancel',
+            label: _('Cancel'),
             action: () => this.close(),
             key: Clutter.KEY_Escape,
         });
 
         this.addButton({
-            label: 'Save',
+            label: _('Save'),
             action: () => {
                 const name = this._entry.get_text().trim();
                 if (name) {
@@ -74,7 +74,7 @@ class ManageDesksDialog extends ModalDialog.ModalDialog {
         });
 
         const title = new St.Label({
-            text: 'Manage Desks',
+            text: _('Manage Desks'),
             style: 'font-weight: bold; font-size: 1.1em;',
         });
         content.add_child(title);
@@ -82,7 +82,7 @@ class ManageDesksDialog extends ModalDialog.ModalDialog {
         const names = Object.keys(desks);
         if (names.length === 0) {
             const emptyLabel = new St.Label({
-                text: 'No saved desks',
+                text: _('No saved desks'),
                 style: 'font-style: italic;',
             });
             content.add_child(emptyLabel);
@@ -136,7 +136,7 @@ class ManageDesksDialog extends ModalDialog.ModalDialog {
         this.contentLayout.add_child(content);
 
         this.addButton({
-            label: 'Close',
+            label: _('Close'),
             action: () => this.close(),
             key: Clutter.KEY_Escape,
             isDefault: true,
@@ -162,11 +162,11 @@ class SavedDesksIndicator extends PanelMenu.Button {
     buildMenu() {
         this.menu.removeAll();
 
-        const saveItem = new PopupMenu.PopupMenuItem('Save current desk');
+        const saveItem = new PopupMenu.PopupMenuItem(_('Save current desk'));
         saveItem.connect('activate', () => this._deskManager.saveCurrentWorkspace());
         this.menu.addMenuItem(saveItem);
 
-        const manageItem = new PopupMenu.PopupMenuItem('Manage desks');
+        const manageItem = new PopupMenu.PopupMenuItem(_('Manage desks'));
         manageItem.connect('activate', () => this._deskManager.manageDesks());
         this.menu.addMenuItem(manageItem);
 
@@ -176,12 +176,13 @@ class SavedDesksIndicator extends PanelMenu.Button {
         const names = Object.keys(desks);
 
         if (names.length === 0) {
-            const emptyItem = new PopupMenu.PopupMenuItem('No saved desks');
+            const emptyItem = new PopupMenu.PopupMenuItem(_('No saved desks'));
             emptyItem.setSensitive(false);
             this.menu.addMenuItem(emptyItem);
         } else {
             for (const name of names) {
-                const item = new PopupMenu.PopupMenuItem(`Load: ${name}`);
+                const labelText = _('Load: %s').replace('%s', name);
+                const item = new PopupMenu.PopupMenuItem(labelText);
                 item.connect('activate', () => this._deskManager.loadDesk(name));
                 this.menu.addMenuItem(item);
             }
@@ -205,8 +206,8 @@ class DeskManager {
         this._indicator = indicator;
     }
 
-    _addIdle(callback) {
-        const id = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+    _addTimeout(interval, callback) {
+        const id = GLib.timeout_add(GLib.PRIORITY_DEFAULT, interval, () => {
             this._removeSource(id);
             return callback();
         });
@@ -238,7 +239,7 @@ class DeskManager {
         }
 
         this._clearSources();
-        this._pendingRestorations = null;
+        this._pendingRestorations = [];
         this._indicator = null;
     }
 
@@ -247,32 +248,24 @@ class DeskManager {
     }
 
     getDesks() {
-        try {
-            const filePath = this._getFilePath();
-            if (GLib.file_test(filePath, GLib.FileTest.EXISTS)) {
-                const [ok, contents] = GLib.file_get_contents(filePath);
-                if (ok) {
-                    const decoder = new TextDecoder();
-                    const data = JSON.parse(decoder.decode(contents));
-                    return data.desks || {};
-                }
+        const filePath = this._getFilePath();
+        if (GLib.file_test(filePath, GLib.FileTest.EXISTS)) {
+            const [ok, contents] = GLib.file_get_contents(filePath);
+            if (ok) {
+                const decoder = new TextDecoder();
+                const data = JSON.parse(decoder.decode(contents));
+                return data.desks || {};
             }
-        } catch (e) {
-            console.error(`SavedDesks: Error loading desks - ${e}`);
         }
         return {};
     }
 
     saveDesks(desks) {
-        try {
-            const filePath = this._getFilePath();
-            const jsonStr = JSON.stringify({ desks }, null, 2);
-            GLib.file_set_contents(filePath, jsonStr);
-            if (this._indicator)
-                this._indicator.buildMenu();
-        } catch (e) {
-            console.error(`SavedDesks: Error saving desks - ${e}`);
-        }
+        const filePath = this._getFilePath();
+        const jsonStr = JSON.stringify({ desks }, null, 2);
+        GLib.file_set_contents(filePath, jsonStr);
+        if (this._indicator)
+            this._indicator.buildMenu();
     }
 
     saveCurrentWorkspace() {
@@ -289,21 +282,9 @@ class DeskManager {
         const activeWs = global.workspace_manager.get_active_workspace();
         const windows = activeWs.list_windows();
 
-        let onlyPrimary = false;
-        try {
-            const settings = new Gio.Settings({ schema_id: 'org.gnome.mutter' });
-            onlyPrimary = settings.get_boolean('workspaces-only-on-primary');
-        } catch (e) {
-            // Mutter settings fallback
-        }
-        const primaryMonitor = global.display.get_primary_monitor();
-
         const savedApps = [];
         for (const window of windows) {
             if (window.window_type !== Meta.WindowType.NORMAL)
-                continue;
-
-            if (onlyPrimary && window.get_monitor() !== primaryMonitor)
                 continue;
 
             const app = Shell.WindowTracker.get_default().get_window_app(window);
@@ -317,17 +298,29 @@ class DeskManager {
                     continue;
             }
 
-            let tileState = 'normal';
-            if (window.is_maximized()) {
-                tileState = 'maximized';
-            } else if (window.maximized_vertically) {
-                const rect = window.get_frame_rect();
-                const workArea = window.get_work_area_current_monitor();
-                tileState = (rect.x + rect.width / 2) < (workArea.x + workArea.width / 2) ? 'left' : 'right';
-            }
-
             const rect = window.get_frame_rect();
             const workArea = window.get_work_area_current_monitor();
+
+            let tileState = 'normal';
+            const maxFlags = window.get_maximized();
+
+            if (maxFlags === Meta.MaximizeFlags.BOTH) {
+                tileState = 'maximized';
+            } else {
+                const centerX = rect.x + rect.width / 2;
+                const workCenterX = workArea.x + workArea.width / 2;
+                const isVertMax = (maxFlags & Meta.MaximizeFlags.VERTICAL) !== 0;
+                const matchesLeftWidth = Math.abs(rect.width - workArea.width / 2) < 60;
+                const matchesFullHeight = Math.abs(rect.height - workArea.height) < 60;
+                const isLeftPos = rect.x < (workArea.x + 60);
+                const isRightPos = Math.abs((rect.x + rect.width) - (workArea.x + workArea.width)) < 60;
+
+                if (window.tile_mode === Meta.TileMode?.LEFT || (isVertMax && centerX < workCenterX) || (matchesLeftWidth && matchesFullHeight && isLeftPos)) {
+                    tileState = 'left';
+                } else if (window.tile_mode === Meta.TileMode?.RIGHT || (isVertMax && centerX >= workCenterX) || (matchesLeftWidth && matchesFullHeight && isRightPos)) {
+                    tileState = 'right';
+                }
+            }
 
             savedApps.push({
                 appId,
@@ -380,13 +373,9 @@ class DeskManager {
             if (app) {
                 app.open_new_window(-1);
             } else {
-                try {
-                    const appInfo = Gio.DesktopAppInfo.new(savedApp.appId);
-                    if (appInfo)
-                        appInfo.launch([], null);
-                } catch (e) {
-                    console.error(`SavedDesks: Failed to launch ${savedApp.appId} - ${e}`);
-                }
+                const appInfo = Gio.DesktopAppInfo.new(savedApp.appId);
+                if (appInfo)
+                    appInfo.launch([], null);
             }
         }
     }
@@ -415,14 +404,24 @@ class DeskManager {
         const pending = this._pendingRestorations[index];
         this._pendingRestorations.splice(index, 1);
 
-        try {
-            window.change_workspace(pending.workspace);
-        } catch (e) {
-            console.error(`SavedDesks: Failed to change workspace - ${e}`);
-        }
+        window.change_workspace(pending.workspace);
 
-        this._addIdle(() => {
+        const scheduleGeometry = () => {
             this._applyGeometry(window, pending);
+        };
+
+        this._addTimeout(50, () => {
+            scheduleGeometry();
+            return GLib.SOURCE_REMOVE;
+        });
+
+        this._addTimeout(250, () => {
+            scheduleGeometry();
+            return GLib.SOURCE_REMOVE;
+        });
+
+        this._addTimeout(600, () => {
+            scheduleGeometry();
             return GLib.SOURCE_REMOVE;
         });
     }
@@ -434,43 +433,55 @@ class DeskManager {
         const workArea = window.get_work_area_current_monitor();
 
         if (pending.tileState === 'maximized') {
-            window.maximize();
-        } else {
+            if (!window.is_maximized())
+                window.maximize(Meta.MaximizeFlags.BOTH);
+        } else if (pending.tileState === 'left') {
             if (window.is_maximized())
-                window.unmaximize();
+                window.unmaximize(Meta.MaximizeFlags.BOTH);
 
-            let targetX, targetY, targetW, targetH;
-
-            if (pending.tileState === 'left') {
-                targetX = workArea.x;
-                targetY = workArea.y;
-                targetW = Math.round(workArea.width / 2);
-                targetH = workArea.height;
-            } else if (pending.tileState === 'right') {
-                targetX = workArea.x + Math.round(workArea.width / 2);
-                targetY = workArea.y;
-                targetW = Math.round(workArea.width / 2);
-                targetH = workArea.height;
-            } else {
-                targetX = Math.round(workArea.x + pending.relX * workArea.width);
-                targetY = Math.round(workArea.y + pending.relY * workArea.height);
-                targetW = Math.round(pending.relW * workArea.width);
-                targetH = Math.round(pending.relH * workArea.height);
-            }
+            const targetX = workArea.x;
+            const targetY = workArea.y;
+            const targetW = Math.round(workArea.width / 2);
+            const targetH = workArea.height;
 
             window.move_resize_frame(true, targetX, targetY, targetW, targetH);
-        }
+            if (window.tile) {
+                try {
+                    window.tile(Meta.TileMode.LEFT, false);
+                } catch (e) {}
+            }
+        } else if (pending.tileState === 'right') {
+            if (window.is_maximized())
+                window.unmaximize(Meta.MaximizeFlags.BOTH);
 
-        try {
-            pending.workspace.activate_with_focus(window, global.get_current_time());
-        } catch (e) {
-            // ignore focus errors
+            const targetX = workArea.x + Math.round(workArea.width / 2);
+            const targetY = workArea.y;
+            const targetW = Math.round(workArea.width / 2);
+            const targetH = workArea.height;
+
+            window.move_resize_frame(true, targetX, targetY, targetW, targetH);
+            if (window.tile) {
+                try {
+                    window.tile(Meta.TileMode.RIGHT, false);
+                } catch (e) {}
+            }
+        } else {
+            if (window.is_maximized())
+                window.unmaximize(Meta.MaximizeFlags.BOTH);
+
+            const targetX = Math.round(workArea.x + pending.relX * workArea.width);
+            const targetY = Math.round(workArea.y + pending.relY * workArea.height);
+            const targetW = Math.round(pending.relW * workArea.width);
+            const targetH = Math.round(pending.relH * workArea.height);
+
+            window.move_resize_frame(true, targetX, targetY, targetW, targetH);
         }
     }
 }
 
 export default class SavedDesksExtension extends Extension {
     enable() {
+        this.initTranslations();
         this._deskManager = new DeskManager();
         this._indicator = new SavedDesksIndicator(this._deskManager);
         this._deskManager.setIndicator(this._indicator);
