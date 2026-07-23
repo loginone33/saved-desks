@@ -11,6 +11,13 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Clutter from 'gi://Clutter';
 
+function logError(msg, err = null) {
+    if (err)
+        console.error(`[SavedDesks] ${msg}: ${err.message || err}`);
+    else
+        console.error(`[SavedDesks] ${msg}`);
+}
+
 const SaveDeskDialog = GObject.registerClass(
 class SaveDeskDialog extends ModalDialog.ModalDialog {
     _init(onSave) {
@@ -34,12 +41,12 @@ class SaveDeskDialog extends ModalDialog.ModalDialog {
         });
         content.add_child(desc);
 
-        this._entry = new St.Entry({
+        const entry = new St.Entry({
             hint_text: _('e.g. Work, Project...'),
             can_focus: true,
             style: 'padding: 6px;',
         });
-        content.add_child(this._entry);
+        content.add_child(entry);
 
         this.contentLayout.add_child(content);
 
@@ -52,12 +59,12 @@ class SaveDeskDialog extends ModalDialog.ModalDialog {
         this.addButton({
             label: _('Save'),
             action: () => {
-                const name = this._entry.get_text().trim();
+                const name = entry.get_text().trim();
                 if (name) {
                     try {
                         this._onSave(name);
                     } catch (e) {
-                        console.error(`[SavedDesks] Error saving desk: ${e.message}`, e);
+                        logError('Error saving desk', e);
                     }
                     this.close();
                 }
@@ -65,12 +72,18 @@ class SaveDeskDialog extends ModalDialog.ModalDialog {
             isDefault: true,
         });
     }
+
+    destroy() {
+        this._onSave = null;
+        super.destroy();
+    }
 });
 
 const ManageDesksDialog = GObject.registerClass(
 class ManageDesksDialog extends ModalDialog.ModalDialog {
     _init(desks, onDelete) {
         super._init();
+        this._onDelete = onDelete;
 
         const content = new St.BoxLayout({
             vertical: true,
@@ -121,7 +134,7 @@ class ManageDesksDialog extends ModalDialog.ModalDialog {
                 });
 
                 delBtn.connect('clicked', () => {
-                    onDelete(name);
+                    this._onDelete(name);
                     row.destroy();
                     if (list.get_n_children() === 0) {
                         this.close();
@@ -145,6 +158,11 @@ class ManageDesksDialog extends ModalDialog.ModalDialog {
             key: Clutter.KEY_Escape,
             isDefault: true,
         });
+    }
+
+    destroy() {
+        this._onDelete = null;
+        super.destroy();
     }
 });
 
@@ -191,6 +209,11 @@ class SavedDesksIndicator extends PanelMenu.Button {
                 this.menu.addMenuItem(item);
             }
         }
+    }
+
+    destroy() {
+        this._deskManager = null;
+        super.destroy();
     }
 });
 
@@ -269,11 +292,6 @@ class DeskManager {
             return 0;
         if (typeof window.maximized === 'number')
             return window.maximized;
-        if (typeof window.get_maximized === 'function') {
-            try {
-                return window.get_maximized();
-            } catch (e) {}
-        }
         return 0;
     }
 
@@ -282,18 +300,41 @@ class DeskManager {
         return flags === Meta.MaximizeFlags.BOTH || (flags & Meta.MaximizeFlags.BOTH) === Meta.MaximizeFlags.BOTH;
     }
 
+    _maximizeWindow(window) {
+        if (!window) return;
+        if (typeof window.maximize === 'function') {
+            try {
+                window.maximize();
+            } catch (e) {
+                logError('Error maximizing window', e);
+            }
+        }
+    }
+
+    _unmaximizeWindow(window) {
+        if (!window) return;
+        if (typeof window.unmaximize === 'function') {
+            try {
+                window.unmaximize();
+            } catch (e) {
+                logError('Error unmaximizing window', e);
+            }
+        }
+    }
+
     getDesks() {
         const filePath = this._getFilePath();
-        if (GLib.file_test(filePath, GLib.FileTest.EXISTS)) {
+        const file = Gio.File.new_for_path(filePath);
+        if (file.query_exists(null)) {
             try {
-                const [ok, contents] = GLib.file_get_contents(filePath);
+                const [ok, contents] = file.load_contents(null);
                 if (ok) {
                     const decoder = new TextDecoder();
                     const data = JSON.parse(decoder.decode(contents));
                     return data.desks || {};
                 }
             } catch (e) {
-                console.error(`[SavedDesks] Error reading desks file: ${e.message}`);
+                logError('Error reading desks file', e);
             }
         }
         return {};
@@ -301,8 +342,13 @@ class DeskManager {
 
     saveDesks(desks) {
         const filePath = this._getFilePath();
+        const file = Gio.File.new_for_path(filePath);
         const jsonStr = JSON.stringify({ desks }, null, 2);
-        GLib.file_set_contents(filePath, jsonStr);
+        try {
+            file.replace_contents(jsonStr, null, false, Gio.FileCreateFlags.NONE, null);
+        } catch (e) {
+            logError('Error writing desks file', e);
+        }
         if (this._indicator)
             this._indicator.buildMenu();
     }
@@ -557,7 +603,7 @@ class DeskManager {
             }
         }
 
-        console.error(`[SavedDesks] Could not launch app with ID: ${appId}`);
+        logError(`Could not launch app with ID: ${appId}`);
         return false;
     }
 
@@ -677,14 +723,14 @@ class DeskManager {
         try {
             window.change_workspace(pending.workspace);
         } catch (e) {
-            console.error(`[SavedDesks] Error moving window workspace: ${e.message}`);
+            logError('Error moving window workspace', e);
         }
 
         const scheduleGeometry = () => {
             try {
                 this._applyGeometry(window, pending);
             } catch (e) {
-                console.error(`[SavedDesks] Error in _applyGeometry: ${e.message}`);
+                logError('Error in _applyGeometry', e);
             }
         };
 
@@ -725,10 +771,10 @@ class DeskManager {
 
         if (pending.tileState === 'maximized') {
             if (!isMaximized)
-                window.maximize(Meta.MaximizeFlags.BOTH);
+                this._maximizeWindow(window);
         } else if (pending.tileState === 'left') {
             if (isMaximized)
-                window.unmaximize(Meta.MaximizeFlags.BOTH);
+                this._unmaximizeWindow(window);
 
             if (currentTileMode !== TILE_LEFT) {
                 let tileSuccess = false;
@@ -737,7 +783,7 @@ class DeskManager {
                         window.tile(TILE_LEFT);
                         tileSuccess = true;
                     } catch (e) {
-                        console.error(`[SavedDesks] Error tiling left: ${e.message}`);
+                        logError('Error tiling left', e);
                     }
                 }
                 if (!tileSuccess) {
@@ -750,7 +796,7 @@ class DeskManager {
             }
         } else if (pending.tileState === 'right') {
             if (isMaximized)
-                window.unmaximize(Meta.MaximizeFlags.BOTH);
+                this._unmaximizeWindow(window);
 
             if (currentTileMode !== TILE_RIGHT) {
                 let tileSuccess = false;
@@ -759,7 +805,7 @@ class DeskManager {
                         window.tile(TILE_RIGHT);
                         tileSuccess = true;
                     } catch (e) {
-                        console.error(`[SavedDesks] Error tiling right: ${e.message}`);
+                        logError('Error tiling right', e);
                     }
                 }
                 if (!tileSuccess) {
@@ -772,7 +818,7 @@ class DeskManager {
             }
         } else {
             if (isMaximized)
-                window.unmaximize(Meta.MaximizeFlags.BOTH);
+                this._unmaximizeWindow(window);
 
             if (currentTileMode !== TILE_NONE && typeof window.tile === 'function') {
                 try {
