@@ -61,11 +61,7 @@ class SaveDeskDialog extends ModalDialog.ModalDialog {
             action: () => {
                 const name = entry.get_text().trim();
                 if (name) {
-                    try {
-                        this._onSave(name);
-                    } catch (e) {
-                        logError('Error saving desk', e);
-                    }
+                    this._onSave(name);
                     this.close();
                 }
             },
@@ -277,49 +273,26 @@ class DeskManager {
     _getTileMode(window) {
         if (!window)
             return 0;
-        if (typeof window.get_tile_mode === 'function') {
-            try {
-                return window.get_tile_mode();
-            } catch (e) {}
-        }
-        if (typeof window.tile_mode === 'number')
-            return window.tile_mode;
-        return 0;
+        return window.get_tile_mode();
     }
 
     _getMaximizedState(window) {
-        if (!window)
-            return 0;
-        if (typeof window.maximized === 'number')
-            return window.maximized;
-        return 0;
+        return window ? window.maximized : 0;
     }
 
     _isMaximized(window) {
         const flags = this._getMaximizedState(window);
-        return flags === Meta.MaximizeFlags.BOTH || (flags & Meta.MaximizeFlags.BOTH) === Meta.MaximizeFlags.BOTH;
+        return (flags & Meta.MaximizeFlags.BOTH) === Meta.MaximizeFlags.BOTH;
     }
 
     _maximizeWindow(window) {
-        if (!window) return;
-        if (typeof window.maximize === 'function') {
-            try {
-                window.maximize();
-            } catch (e) {
-                logError('Error maximizing window', e);
-            }
-        }
+        if (window)
+            window.maximize();
     }
 
     _unmaximizeWindow(window) {
-        if (!window) return;
-        if (typeof window.unmaximize === 'function') {
-            try {
-                window.unmaximize();
-            } catch (e) {
-                logError('Error unmaximizing window', e);
-            }
-        }
+        if (window)
+            window.unmaximize();
     }
 
     async getDesks() {
@@ -336,7 +309,8 @@ class DeskManager {
                         return;
                     }
                 } catch (e) {
-                    // File does not exist or cannot be read
+                    if (!e.matches || !e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.NOT_FOUND))
+                        logError('Error reading desks file', e);
                 }
                 resolve({});
             });
@@ -378,12 +352,12 @@ class DeskManager {
             return -9999;
 
         const app = Shell.WindowTracker.get_default().get_window_app(window);
-        const winAppId = app ? (app.get_id() || '') : '';
-        const winWmClass = typeof window.get_wm_class === 'function' ? (window.get_wm_class() || '') : (window.wm_class || '');
-        const winWmInst = typeof window.get_wm_class_instance === 'function' ? (window.get_wm_class_instance() || '') : '';
-        const winGtkId = typeof window.get_gtk_application_id === 'function' ? (window.get_gtk_application_id() || '') : '';
-        const winSandboxId = typeof window.get_sandboxed_app_id === 'function' ? (window.get_sandboxed_app_id() || '') : '';
-        const winTitle = typeof window.get_title === 'function' ? (window.get_title() || '') : '';
+        const winAppId = app ? app.get_id() : '';
+        const winWmClass = window.get_wm_class() || '';
+        const winWmInst = window.get_wm_class_instance() || '';
+        const winGtkId = window.get_gtk_application_id() || '';
+        const winSandboxId = window.get_sandboxed_app_id() || '';
+        const winTitle = window.get_title() || '';
 
         const targetAppId = pending.appId || '';
         const targetWmClass = pending.wmClass || '';
@@ -484,8 +458,8 @@ class DeskManager {
         const activeWs = global.workspace_manager.get_active_workspace();
         const windows = activeWs.list_windows();
 
-        const TILE_LEFT = Meta.TileMode ? Meta.TileMode.LEFT : 1;
-        const TILE_RIGHT = Meta.TileMode ? Meta.TileMode.RIGHT : 2;
+        const TILE_LEFT = Meta.TileMode.LEFT;
+        const TILE_RIGHT = Meta.TileMode.RIGHT;
 
         const savedApps = [];
         for (const window of windows) {
@@ -494,9 +468,9 @@ class DeskManager {
 
             const app = Shell.WindowTracker.get_default().get_window_app(window);
             let appId = app ? app.get_id() : null;
-            const wmClass = typeof window.get_wm_class === 'function' ? window.get_wm_class() : (window.wm_class || '');
-            const wmClassInstance = typeof window.get_wm_class_instance === 'function' ? window.get_wm_class_instance() : '';
-            const title = typeof window.get_title === 'function' ? (window.get_title() || '') : '';
+            const wmClass = window.get_wm_class() || '';
+            const wmClassInstance = window.get_wm_class_instance() || '';
+            const title = window.get_title() || '';
 
             if (!appId && wmClass) {
                 appId = `${wmClass.toLowerCase()}.desktop`;
@@ -719,29 +693,21 @@ class DeskManager {
             return;
 
         if (window._savedDesksTitleId) {
-            try { window.disconnect(window._savedDesksTitleId); } catch (e) {}
+            window.disconnect(window._savedDesksTitleId);
             window._savedDesksTitleId = null;
         }
         if (window._savedDesksWmClassId) {
-            try { window.disconnect(window._savedDesksWmClassId); } catch (e) {}
+            window.disconnect(window._savedDesksWmClassId);
             window._savedDesksWmClassId = null;
         }
         window._savedDesksSignalsAttached = false;
     }
 
     _moveAndApply(window, pending) {
-        try {
-            window.change_workspace(pending.workspace);
-        } catch (e) {
-            logError('Error moving window workspace', e);
-        }
+        window.change_workspace(pending.workspace);
 
         const scheduleGeometry = () => {
-            try {
-                this._applyGeometry(window, pending);
-            } catch (e) {
-                logError('Error in _applyGeometry', e);
-            }
+            this._applyGeometry(window, pending);
         };
 
         scheduleGeometry();
@@ -771,10 +737,6 @@ class DeskManager {
         if (!window || window.get_workspace() === null)
             return;
 
-        const TILE_NONE = Meta.TileMode ? Meta.TileMode.NONE : 0;
-        const TILE_LEFT = Meta.TileMode ? Meta.TileMode.LEFT : 1;
-        const TILE_RIGHT = Meta.TileMode ? Meta.TileMode.RIGHT : 2;
-
         const workArea = window.get_work_area_current_monitor();
         const isMaximized = this._isMaximized(window);
         const currentTileMode = this._getTileMode(window);
@@ -786,55 +748,20 @@ class DeskManager {
             if (isMaximized)
                 this._unmaximizeWindow(window);
 
-            if (currentTileMode !== TILE_LEFT) {
-                let tileSuccess = false;
-                if (typeof window.tile === 'function') {
-                    try {
-                        window.tile(TILE_LEFT);
-                        tileSuccess = true;
-                    } catch (e) {
-                        logError('Error tiling left', e);
-                    }
-                }
-                if (!tileSuccess) {
-                    const targetX = workArea.x;
-                    const targetY = workArea.y;
-                    const targetW = Math.round(workArea.width / 2);
-                    const targetH = workArea.height;
-                    window.move_resize_frame(true, targetX, targetY, targetW, targetH);
-                }
-            }
+            if (currentTileMode !== Meta.TileMode.LEFT)
+                window.tile(Meta.TileMode.LEFT);
         } else if (pending.tileState === 'right') {
             if (isMaximized)
                 this._unmaximizeWindow(window);
 
-            if (currentTileMode !== TILE_RIGHT) {
-                let tileSuccess = false;
-                if (typeof window.tile === 'function') {
-                    try {
-                        window.tile(TILE_RIGHT);
-                        tileSuccess = true;
-                    } catch (e) {
-                        logError('Error tiling right', e);
-                    }
-                }
-                if (!tileSuccess) {
-                    const targetX = workArea.x + Math.round(workArea.width / 2);
-                    const targetY = workArea.y;
-                    const targetW = Math.round(workArea.width / 2);
-                    const targetH = workArea.height;
-                    window.move_resize_frame(true, targetX, targetY, targetW, targetH);
-                }
-            }
+            if (currentTileMode !== Meta.TileMode.RIGHT)
+                window.tile(Meta.TileMode.RIGHT);
         } else {
             if (isMaximized)
                 this._unmaximizeWindow(window);
 
-            if (currentTileMode !== TILE_NONE && typeof window.tile === 'function') {
-                try {
-                    window.tile(TILE_NONE);
-                } catch (e) {}
-            }
+            if (currentTileMode !== Meta.TileMode.NONE)
+                window.tile(Meta.TileMode.NONE);
 
             const targetX = Math.round(workArea.x + pending.relX * workArea.width);
             const targetY = Math.round(workArea.y + pending.relY * workArea.height);
