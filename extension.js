@@ -1,4 +1,6 @@
 import { Extension, gettext as _ } from 'resource:///org/gnome/shell/extensions/extension.js';
+import * as Config from 'resource:///org/gnome/shell/misc/config.js';
+const shellVersion = parseInt(Config.PACKAGE_VERSION.split('.')[0], 10);
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as ModalDialog from 'resource:///org/gnome/shell/ui/modalDialog.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
@@ -13,7 +15,7 @@ import Clutter from 'gi://Clutter';
 
 function logError(msg, err = null) {
     if (err)
-        console.error(`[SavedDesks] ${msg}: ${err.message || err}`);
+        console.error(err, `[SavedDesks] ${msg}`);
     else
         console.error(`[SavedDesks] ${msg}`);
 }
@@ -273,11 +275,36 @@ class DeskManager {
     _getTileMode(window) {
         if (!window)
             return 0;
-        return window.get_tile_mode();
+        if (window.get_tile_mode)
+            return window.get_tile_mode();
+        return 0;
     }
 
     _getMaximizedState(window) {
-        return window ? window.maximized : 0;
+        if (!window) return 0;
+
+        // Use bracket notation to avoid static linter errors for GNOME 45-48
+        if (window['get_maximized']) {
+            return window['get_maximized']();
+        }
+
+        // GNOME 49+ fallback (get_maximized was removed)
+        const rect = window.get_frame_rect();
+        let workArea;
+        const monitor = window.get_monitor();
+        const ws = window.get_workspace();
+        if (ws && monitor !== undefined) {
+            workArea = ws.get_work_area_for_monitor(monitor);
+        } else {
+            workArea = window.get_work_area_all_monitors();
+        }
+
+        if (workArea && rect.x === workArea.x && rect.y === workArea.y &&
+            rect.width === workArea.width && rect.height === workArea.height) {
+            return 3; // 3 = BOTH
+        }
+        
+        return 0;
     }
 
     _isMaximized(window) {
@@ -286,13 +313,21 @@ class DeskManager {
     }
 
     _maximizeWindow(window) {
-        if (window)
+        if (!window) return;
+        if (shellVersion >= 49) {
             window.maximize();
+        } else {
+            window.maximize(3); // Meta.MaximizeFlags.BOTH
+        }
     }
 
     _unmaximizeWindow(window) {
-        if (window)
+        if (!window) return;
+        if (shellVersion >= 49) {
             window.unmaximize();
+        } else {
+            window.unmaximize(3); // Meta.MaximizeFlags.BOTH
+        }
     }
 
     async getDesks() {
@@ -352,7 +387,7 @@ class DeskManager {
             return -9999;
 
         const app = Shell.WindowTracker.get_default().get_window_app(window);
-        const winAppId = app ? app.get_id() : '';
+        const winAppId = app ? (app.get_id() || '') : '';
         const winWmClass = window.get_wm_class() || '';
         const winWmInst = window.get_wm_class_instance() || '';
         const winGtkId = window.get_gtk_application_id() || '';
@@ -455,76 +490,89 @@ class DeskManager {
     }
 
     async _doSaveCurrentWorkspace(name) {
-        const activeWs = global.workspace_manager.get_active_workspace();
-        const windows = activeWs.list_windows();
+        try {
+            const activeWs = global.workspace_manager.get_active_workspace();
+            const windows = activeWs.list_windows();
 
-        const TILE_LEFT = Meta.TileMode.LEFT;
-        const TILE_RIGHT = Meta.TileMode.RIGHT;
+            const TILE_LEFT = Meta.TileMode ? Meta.TileMode.LEFT : 1;
+            const TILE_RIGHT = Meta.TileMode ? Meta.TileMode.RIGHT : 2;
 
-        const savedApps = [];
-        for (const window of windows) {
-            if (window.window_type !== Meta.WindowType.NORMAL)
-                continue;
+            const savedApps = [];
+            for (const window of windows) {
+                if (window.window_type !== Meta.WindowType.NORMAL)
+                    continue;
 
-            const app = Shell.WindowTracker.get_default().get_window_app(window);
-            let appId = app ? app.get_id() : null;
-            const wmClass = window.get_wm_class() || '';
-            const wmClassInstance = window.get_wm_class_instance() || '';
-            const title = window.get_title() || '';
-
-            if (!appId && wmClass) {
-                appId = `${wmClass.toLowerCase()}.desktop`;
-            }
-
-            if (!appId)
-                continue;
-
-            const rect = window.get_frame_rect();
-            const workArea = window.get_work_area_current_monitor();
-
-            let tileState = 'normal';
-            const maxFlags = this._getMaximizedState(window);
-
-            if (maxFlags === Meta.MaximizeFlags.BOTH) {
-                tileState = 'maximized';
-            } else {
-                const centerX = rect.x + rect.width / 2;
-                const workCenterX = workArea.x + workArea.width / 2;
-                const isVertMax = (maxFlags & Meta.MaximizeFlags.VERTICAL) !== 0;
-                const matchesLeftWidth = Math.abs(rect.width - workArea.width / 2) < 80;
-                const matchesFullHeight = Math.abs(rect.height - workArea.height) < 80;
-                const isLeftPos = rect.x < (workArea.x + 80);
-                const isRightPos = Math.abs((rect.x + rect.width) - (workArea.x + workArea.width)) < 80;
-
-                const tileMode = this._getTileMode(window);
-
-                if (tileMode === TILE_LEFT || (matchesLeftWidth && matchesFullHeight && isLeftPos)) {
-                    tileState = 'left';
-                } else if (tileMode === TILE_RIGHT || (matchesLeftWidth && matchesFullHeight && isRightPos)) {
-                    tileState = 'right';
-                } else if (isVertMax && centerX < workCenterX) {
-                    tileState = 'left';
-                } else if (isVertMax && centerX >= workCenterX) {
-                    tileState = 'right';
+                if (Meta.prefs_get_workspaces_only_on_primary && Meta.prefs_get_workspaces_only_on_primary()) {
+                    if (window.get_monitor() !== global.display.get_primary_monitor()) {
+                        continue;
+                    }
                 }
+
+                const app = Shell.WindowTracker.get_default().get_window_app(window);
+                let appId = app ? (app.get_id() || '') : null;
+                const wmClass = window.get_wm_class() || '';
+                const wmClassInstance = window.get_wm_class_instance() || '';
+                const title = window.get_title() || '';
+
+                if (!appId && wmClass) {
+                    appId = `${wmClass.toLowerCase()}.desktop`;
+                }
+
+                if (!appId)
+                    continue;
+
+                const rect = window.get_frame_rect();
+            const ws = window.get_workspace();
+            let workArea = ws.get_work_area_for_monitor(window.get_monitor());
+
+                let tileState = 'normal';
+                const maxFlags = this._getMaximizedState(window);
+
+                if (maxFlags === Meta.MaximizeFlags.BOTH) {
+                    tileState = 'maximized';
+                } else {
+                    const centerX = rect.x + rect.width / 2;
+                    const workCenterX = workArea.x + workArea.width / 2;
+                    const isVertMax = (maxFlags & Meta.MaximizeFlags.VERTICAL) !== 0;
+                    const matchesLeftWidth = Math.abs(rect.width - workArea.width / 2) < 80;
+                    const matchesFullHeight = Math.abs(rect.height - workArea.height) < 80;
+                    const isLeftPos = rect.x < (workArea.x + 80);
+                    const isRightPos = Math.abs((rect.x + rect.width) - (workArea.x + workArea.width)) < 80;
+
+                    let tileMode = this._getTileMode(window);
+
+                    if (tileMode === TILE_LEFT || (matchesLeftWidth && matchesFullHeight && isLeftPos)) {
+                        tileState = 'left';
+                    } else if (tileMode === TILE_RIGHT || (matchesLeftWidth && matchesFullHeight && isRightPos)) {
+                        tileState = 'right';
+                    } else if (isVertMax && centerX < workCenterX) {
+                        tileState = 'left';
+                    } else if (isVertMax && centerX >= workCenterX) {
+                        tileState = 'right';
+                    }
+                }
+
+                savedApps.push({
+                    appId,
+                    wmClass,
+                    wmClassInstance,
+                    title,
+                    tileState,
+                    monitorIndex: window.get_monitor(),
+                    relX: (rect.x - workArea.x) / workArea.width,
+                    relY: (rect.y - workArea.y) / workArea.height,
+                    relW: rect.width / workArea.width,
+                    relH: rect.height / workArea.height,
+                });
             }
 
-            savedApps.push({
-                appId,
-                wmClass,
-                wmClassInstance,
-                title,
-                tileState,
-                relX: (rect.x - workArea.x) / workArea.width,
-                relY: (rect.y - workArea.y) / workArea.height,
-                relW: rect.width / workArea.width,
-                relH: rect.height / workArea.height,
-            });
+            const desks = await this.getDesks();
+            desks[name] = savedApps;
+            await this.saveDesks(desks);
+        } catch (e) {
+            logError('CRITICAL ERROR IN _doSaveCurrentWorkspace', e);
+            throw e;
         }
-
-        const desks = await this.getDesks();
-        desks[name] = savedApps;
-        await this.saveDesks(desks);
     }
 
     async manageDesks() {
@@ -737,7 +785,25 @@ class DeskManager {
         if (!window || window.get_workspace() === null)
             return;
 
-        const workArea = window.get_work_area_current_monitor();
+        const TILE_NONE = Meta.TileMode ? Meta.TileMode.NONE : 0;
+        const TILE_LEFT = Meta.TileMode ? Meta.TileMode.LEFT : 1;
+        const TILE_RIGHT = Meta.TileMode ? Meta.TileMode.RIGHT : 2;
+
+        const rect = window.get_frame_rect();
+        const ws = window.get_workspace();
+
+        let targetMonitor = global.display.get_primary_monitor();
+        if (pending.monitorIndex !== undefined && pending.monitorIndex >= 0 && pending.monitorIndex < global.display.get_n_monitors()) {
+            targetMonitor = pending.monitorIndex;
+        }
+
+        if (window.get_monitor() !== targetMonitor) {
+            if (window.move_to_monitor) {
+                window.move_to_monitor(targetMonitor);
+            }
+        }
+
+        let workArea = ws.get_work_area_for_monitor(targetMonitor);
         const isMaximized = this._isMaximized(window);
         const currentTileMode = this._getTileMode(window);
 
@@ -748,20 +814,45 @@ class DeskManager {
             if (isMaximized)
                 this._unmaximizeWindow(window);
 
-            if (currentTileMode !== Meta.TileMode.LEFT)
-                window.tile(Meta.TileMode.LEFT);
+            if (currentTileMode !== TILE_LEFT) {
+                let tileSuccess = false;
+                if (window.tile) {
+                    window.tile(TILE_LEFT);
+                    tileSuccess = true;
+                }
+                if (!tileSuccess) {
+                    const targetX = workArea.x;
+                    const targetY = workArea.y;
+                    const targetW = Math.round(workArea.width / 2);
+                    const targetH = workArea.height;
+                    window.move_resize_frame(true, targetX, targetY, targetW, targetH);
+                }
+            }
         } else if (pending.tileState === 'right') {
             if (isMaximized)
                 this._unmaximizeWindow(window);
 
-            if (currentTileMode !== Meta.TileMode.RIGHT)
-                window.tile(Meta.TileMode.RIGHT);
+            if (currentTileMode !== TILE_RIGHT) {
+                let tileSuccess = false;
+                if (window.tile) {
+                    window.tile(TILE_RIGHT);
+                    tileSuccess = true;
+                }
+                if (!tileSuccess) {
+                    const targetX = workArea.x + Math.round(workArea.width / 2);
+                    const targetY = workArea.y;
+                    const targetW = Math.round(workArea.width / 2);
+                    const targetH = workArea.height;
+                    window.move_resize_frame(true, targetX, targetY, targetW, targetH);
+                }
+            }
         } else {
             if (isMaximized)
                 this._unmaximizeWindow(window);
 
-            if (currentTileMode !== Meta.TileMode.NONE)
-                window.tile(Meta.TileMode.NONE);
+            if (currentTileMode !== TILE_NONE && window.tile) {
+                window.tile(TILE_NONE);
+            }
 
             const targetX = Math.round(workArea.x + pending.relX * workArea.width);
             const targetY = Math.round(workArea.y + pending.relY * workArea.height);
@@ -775,7 +866,6 @@ class DeskManager {
 
 export default class SavedDesksExtension extends Extension {
     enable() {
-        this.initTranslations();
         this._deskManager = new DeskManager();
         this._indicator = new SavedDesksIndicator(this._deskManager);
         this._deskManager.setIndicator(this._indicator);
