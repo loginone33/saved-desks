@@ -201,10 +201,23 @@ class SavedDesksIndicator extends PanelMenu.Button {
             this.menu.addMenuItem(emptyItem);
         } else {
             for (const name of names) {
-                const labelText = _('Load: %s').replace('%s', name);
-                const item = new PopupMenu.PopupMenuItem(labelText);
-                item.connect('activate', () => this._deskManager.loadDesk(name));
-                this.menu.addMenuItem(item);
+                const subMenu = new PopupMenu.PopupSubMenuMenuItem(_('Load: %s').replace('%s', name));
+                
+                const nMonitors = global.display.get_n_monitors();
+                const primaryMonitor = global.display.get_primary_monitor();
+
+                const primaryItem = new PopupMenu.PopupMenuItem(_('Send to Primary Monitor'));
+                primaryItem.connect('activate', () => this._deskManager.loadDesk(name, primaryMonitor));
+                subMenu.menu.addMenuItem(primaryItem);
+
+                for (let i = 0; i < nMonitors; i++) {
+                    if (i === primaryMonitor) continue;
+                    const item = new PopupMenu.PopupMenuItem(_('Send to Monitor %d').replace('%d', i + 1));
+                    item.connect('activate', () => this._deskManager.loadDesk(name, i));
+                    subMenu.menu.addMenuItem(item);
+                }
+
+                this.menu.addMenuItem(subMenu);
             }
         }
     }
@@ -490,7 +503,6 @@ class DeskManager {
     }
 
     async _doSaveCurrentWorkspace(name) {
-        try {
             const activeWs = global.workspace_manager.get_active_workspace();
             const windows = activeWs.list_windows();
 
@@ -569,10 +581,6 @@ class DeskManager {
             const desks = await this.getDesks();
             desks[name] = savedApps;
             await this.saveDesks(desks);
-        } catch (e) {
-            logError('CRITICAL ERROR IN _doSaveCurrentWorkspace', e);
-            throw e;
-        }
     }
 
     async manageDesks() {
@@ -639,7 +647,7 @@ class DeskManager {
         return false;
     }
 
-    async loadDesk(name) {
+    async loadDesk(name, forceMonitorIndex = -1) {
         const desks = await this.getDesks();
         const savedApps = desks[name];
         if (!savedApps || savedApps.length === 0)
@@ -651,8 +659,10 @@ class DeskManager {
         const now = GLib.get_monotonic_time();
         for (let i = 0; i < savedApps.length; i++) {
             const savedApp = savedApps[i];
+            let targetMonitorIndex = forceMonitorIndex >= 0 ? forceMonitorIndex : savedApp.monitorIndex;
             this._pendingRestorations.push({
                 ...savedApp,
+                monitorIndex: targetMonitorIndex,
                 workspace: ws,
                 timestamp: now,
             });

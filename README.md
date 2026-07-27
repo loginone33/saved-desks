@@ -10,8 +10,21 @@
   - **GNOME Window Tiling States**: Left half-screen tile (`left`), Right half-screen tile (`right`), and Maximized mode (`maximized`).
   - **Proportional Geometry**: Preserves custom window sizes and relative screen positions.
 - **Restore Desk**: Select a saved desk from the top panel menu to automatically create a new workspace, launch the associated applications, and restore their exact window layout and tiling states.
+- **Multi-Monitor Workflow (Send to Monitor)**: Use the "Send to Monitor" option in the desk submenu to force a saved layout to be restored entirely to a specific monitor.
 - **Manage Desks**: Simple modal dialog to delete saved desk templates.
 - **Clean & Lightweight**: Native GNOME Shell implementation with zero external script dependencies, built according to official GNOME Shell extension guidelines.
+
+---
+
+## ⚠️ IMPORTANT REQUIREMENT
+
+**This extension ONLY works correctly if your GNOME is set to "Workspaces on primary display only"** (this is the default GNOME behavior). If you have workspaces enabled on all displays, the extension will not function properly.
+
+Because of this requirement, the extension intentionally saves ONLY the windows located on your primary monitor. This creates a highly efficient "assembly line" workflow for multi-monitor users:
+
+1. Arrange a set of applications exactly how you want them on your **primary monitor** (e.g., tiled side-by-side or stacked).
+2. Save this layout as a new desk.
+3. Open the Saved Desks menu and use the **"Send to Monitor"** option to instantly push that perfectly pre-configured layout to **any of your secondary monitors**!
 
 ---
 

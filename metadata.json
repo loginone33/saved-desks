@@ -1,6 +1,6 @@
 {
   "name": "Saved Desks",
-  "description": "Save and restore window layouts on individual workspaces, similar to ChromeOS Saved Desks.",
+  "description": "Save and restore window layouts on workspaces (Requires GNOME set to 'Workspaces on primary display only').",
   "uuid": "saved-desks@loginone",
   "version": 8,
   "shell-version": [ "45", "46", "47", "48", "49", "50" ],
