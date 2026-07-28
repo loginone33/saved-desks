@@ -1,5 +1,7 @@
 # Saved Desks for GNOME Shell
 
+[![GNOME Extensions](https://img.shields.io/badge/GNOME_Extensions-Available-blue.svg)](https://extensions.gnome.org/extension/10531/saved-desks/)
+
 **Saved Desks** is a GNOME Shell extension inspired by the ChromeOS Saved Desks feature. It allows you to save the window layout of your current workspace and restore it anytime on a new workspace.
 
 ---
