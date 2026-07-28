@@ -79,9 +79,10 @@ class SaveDeskDialog extends ModalDialog.ModalDialog {
 
 const ManageDesksDialog = GObject.registerClass(
 class ManageDesksDialog extends ModalDialog.ModalDialog {
-    _init(desks, onDelete) {
+    _init(desks, onDelete, onMove) {
         super._init();
         this._onDelete = onDelete;
+        this._onMove = onMove;
 
         const content = new St.BoxLayout({
             vertical: true,
@@ -94,7 +95,7 @@ class ManageDesksDialog extends ModalDialog.ModalDialog {
         });
         content.add_child(title);
 
-        const names = Object.keys(desks);
+        const names = Object.keys(desks).filter(k => k !== '_config');
         if (names.length === 0) {
             const emptyLabel = new St.Label({
                 text: _('No saved desks'),
@@ -131,6 +132,42 @@ class ManageDesksDialog extends ModalDialog.ModalDialog {
                     style: 'padding: 4px 10px;',
                 });
 
+                const upBtn = new St.Button({
+                    style_class: 'button',
+                    child: new St.Icon({
+                        icon_name: 'go-up-symbolic',
+                        icon_size: 16,
+                    }),
+                    style: 'padding: 4px 10px;',
+                });
+
+                const downBtn = new St.Button({
+                    style_class: 'button',
+                    child: new St.Icon({
+                        icon_name: 'go-down-symbolic',
+                        icon_size: 16,
+                    }),
+                    style: 'padding: 4px 10px;',
+                });
+
+                upBtn.connect('clicked', () => {
+                    const parent = row.get_parent();
+                    const idx = parent.get_children().indexOf(row);
+                    if (idx > 0) {
+                        this._onMove(name, -1);
+                        parent.set_child_at_index(row, idx - 1);
+                    }
+                });
+
+                downBtn.connect('clicked', () => {
+                    const parent = row.get_parent();
+                    const idx = parent.get_children().indexOf(row);
+                    if (idx < parent.get_n_children() - 1) {
+                        this._onMove(name, 1);
+                        parent.set_child_at_index(row, idx + 1);
+                    }
+                });
+
                 delBtn.connect('clicked', () => {
                     this._onDelete(name);
                     row.destroy();
@@ -140,6 +177,8 @@ class ManageDesksDialog extends ModalDialog.ModalDialog {
                 });
 
                 row.add_child(label);
+                row.add_child(upBtn);
+                row.add_child(downBtn);
                 row.add_child(delBtn);
                 list.add_child(row);
             }
@@ -160,6 +199,7 @@ class ManageDesksDialog extends ModalDialog.ModalDialog {
 
     destroy() {
         this._onDelete = null;
+        this._onMove = null;
         super.destroy();
     }
 });
@@ -192,8 +232,18 @@ class SavedDesksIndicator extends PanelMenu.Button {
 
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
+        const config = await this._deskManager.getConfig();
+        const openInNew = config.openInNewWorkspace !== false;
+        const switchItem = new PopupMenu.PopupSwitchMenuItem(_('Open in new workspace'), openInNew);
+        switchItem.connect('toggled', (item, state) => {
+            this._deskManager.setConfig({ openInNewWorkspace: state });
+        });
+        this.menu.addMenuItem(switchItem);
+
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
         const desks = await this._deskManager.getDesks();
-        const names = Object.keys(desks);
+        const names = Object.keys(desks).filter(k => k !== '_config');
 
         if (names.length === 0) {
             const emptyItem = new PopupMenu.PopupMenuItem(_('No saved desks'));
@@ -383,6 +433,17 @@ class DeskManager {
                 resolve();
             });
         });
+    }
+
+    async getConfig() {
+        const desks = await this.getDesks();
+        return desks._config || {};
+    }
+
+    async setConfig(cfg) {
+        const desks = await this.getDesks();
+        desks._config = { ...(desks._config || {}), ...cfg };
+        await this.saveDesks(desks);
     }
 
     saveCurrentWorkspace() {
@@ -594,6 +655,25 @@ class DeskManager {
                 delete currentDesks[nameToDelete];
                 await this.saveDesks(currentDesks);
             }
+        }, async (nameToMove, direction) => {
+            const currentDesks = await this.getDesks();
+            const keys = Object.keys(currentDesks).filter(k => k !== '_config');
+            const oldIndex = keys.indexOf(nameToMove);
+            if (oldIndex === -1) return;
+            const newIndex = oldIndex + direction;
+            if (newIndex < 0 || newIndex >= keys.length) return;
+            
+            keys.splice(oldIndex, 1);
+            keys.splice(newIndex, 0, nameToMove);
+            
+            const newDesks = {};
+            if (currentDesks._config) {
+                newDesks._config = currentDesks._config;
+            }
+            for (const k of keys) {
+                newDesks[k] = currentDesks[k];
+            }
+            await this.saveDesks(newDesks);
         });
         this._activeDialog.open();
     }
@@ -653,8 +733,16 @@ class DeskManager {
         if (!savedApps || savedApps.length === 0)
             return;
 
-        const ws = global.workspace_manager.append_new_workspace(false, global.get_current_time());
-        ws.activate(global.get_current_time());
+        const config = await this.getConfig();
+        const openInNew = config.openInNewWorkspace !== false;
+        
+        let ws;
+        if (openInNew) {
+            ws = global.workspace_manager.append_new_workspace(false, global.get_current_time());
+            ws.activate(global.get_current_time());
+        } else {
+            ws = global.workspace_manager.get_active_workspace();
+        }
 
         const now = GLib.get_monotonic_time();
         for (let i = 0; i < savedApps.length; i++) {
