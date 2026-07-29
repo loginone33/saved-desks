@@ -74,10 +74,12 @@ Configuration data is saved locally at `~/.config/gnome-saved-desks.json`.
 
 ## Support & Donations
 
-If you like this extension and want to support its ongoing development, feel free to buy me a coffee!
+If you like this extension and want to support its ongoing development, your support is greatly appreciated!
 
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Donate%20(PayPal)-ff5e5b.svg)](https://ko-fi.com/loginone)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-yellow.svg)](https://buymeacoffee.com/loginone)
 
+- **Ko-fi** *(PayPal available)*: [ko-fi.com/loginone](https://ko-fi.com/loginone)
 - **Buy Me A Coffee**: [buymeacoffee.com/loginone](https://buymeacoffee.com/loginone)
 
 ---

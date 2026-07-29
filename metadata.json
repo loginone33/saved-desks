@@ -6,6 +6,7 @@
   "shell-version": [ "45", "46", "47", "48", "49", "50" ],
   "url": "https://github.com/loginone33/saved-desks",
   "donations": {
+    "kofi": "loginone",
     "buymeacoffee": "loginone"
   },
   "gettext-domain": "saved-desks@loginone"
