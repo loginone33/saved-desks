@@ -8,14 +8,15 @@
 
 ## Features
 
-- **Save Current Desk**: Saves all open normal windows on the active workspace, preserving:
-  - **GNOME Window Tiling States**: Left half-screen tile (`left`), Right half-screen tile (`right`), and Maximized mode (`maximized`).
+- **Save Current Desk**: Saves open windows on the workspace, preserving:
+  - **Window Tiling States**: Left half-screen tile (`left`), Right half-screen tile (`right`), and Maximized mode (`maximized`).
   - **Proportional Geometry**: Preserves custom window sizes and relative screen positions.
-- **Restore Desk**: Select a saved desk from the top panel menu to automatically create a new workspace, launch the associated applications, and restore their exact window layout and tiling states.
-  - **Open in New Workspace Toggle**: A convenient switch at the top of the menu lets you choose whether to load desks into a brand new workspace or directly into your current one.
-- **Multi-Monitor Workflow (Send to Monitor)**: Use the "Send to Monitor" option in the desk submenu to force a saved layout to be restored entirely to a specific monitor.
-- **Manage Desks**: A simple dialog that allows you to easily delete saved desk templates or **reorder** them using the up/down arrows to keep your menu organized exactly how you like it.
-- **Clean & Lightweight**: Native GNOME Shell implementation with zero external script dependencies, built according to official GNOME Shell extension guidelines.
+- **Restore Desk**: Select a saved desk from the top panel menu to launch associated applications and restore their exact window layout and tiling states.
+  - **Open in New Workspace Toggle**: A quick switch in the menu lets you choose whether to load desks into a brand new workspace or directly into your current one.
+- **Autostart on Login**: Automatically launch and restore a chosen desk layout upon logging into GNOME.
+- **Target Monitor Selection**: Direct your saved desk to your Primary Monitor or any secondary display.
+- **Manage Desks**: A simple dialog that allows you to delete saved desk templates or **reorder** them using the up/down arrows.
+- **Clean & Lightweight**: Native GNOME Shell implementation with zero external background processes, fully compliant with GNOME Review Guidelines.
 
 ---
 

@@ -242,6 +242,53 @@ class SavedDesksIndicator extends PanelMenu.Button {
 
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
+        const nMonitors = global.display.get_n_monitors();
+        const primaryMonitor = global.display.get_primary_monitor();
+        const targetMonitor = config.targetMonitor !== undefined ? config.targetMonitor : -1;
+
+        if (nMonitors > 1) {
+            let targetLabel = _('Target: Saved Layout');
+            if (targetMonitor === primaryMonitor) {
+                targetLabel = _('Target: Primary Monitor');
+            } else if (targetMonitor >= 0) {
+                targetLabel = _('Target: Monitor %d').replace('%d', targetMonitor + 1);
+            }
+
+            const targetSubMenu = new PopupMenu.PopupSubMenuMenuItem(targetLabel);
+
+            const defaultTarget = new PopupMenu.PopupMenuItem(_('Saved Layout (Default)'));
+            if (targetMonitor === -1)
+                defaultTarget.setOrnament(PopupMenu.Ornament.CHECK);
+            defaultTarget.connect('activate', () => {
+                this._deskManager.setConfig({ targetMonitor: -1 });
+            });
+            targetSubMenu.menu.addMenuItem(defaultTarget);
+
+            const primaryTarget = new PopupMenu.PopupMenuItem(_('Primary Monitor'));
+            if (targetMonitor === primaryMonitor)
+                primaryTarget.setOrnament(PopupMenu.Ornament.CHECK);
+            primaryTarget.connect('activate', () => {
+                this._deskManager.setConfig({ targetMonitor: primaryMonitor });
+            });
+            targetSubMenu.menu.addMenuItem(primaryTarget);
+
+            for (let i = 0; i < nMonitors; i++) {
+                if (i === primaryMonitor) continue;
+                const monName = _('Monitor %d').replace('%d', i + 1);
+                const monTarget = new PopupMenu.PopupMenuItem(monName);
+                if (targetMonitor === i)
+                    monTarget.setOrnament(PopupMenu.Ornament.CHECK);
+                monTarget.connect('activate', () => {
+                    this._deskManager.setConfig({ targetMonitor: i });
+                });
+                targetSubMenu.menu.addMenuItem(monTarget);
+            }
+
+            this.menu.addMenuItem(targetSubMenu);
+        }
+
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
         const desks = await this._deskManager.getDesks();
         const names = Object.keys(desks).filter(k => k !== '_config');
 
@@ -249,27 +296,46 @@ class SavedDesksIndicator extends PanelMenu.Button {
             const emptyItem = new PopupMenu.PopupMenuItem(_('No saved desks'));
             emptyItem.setSensitive(false);
             this.menu.addMenuItem(emptyItem);
-        } else {
-            for (const name of names) {
-                const subMenu = new PopupMenu.PopupSubMenuMenuItem(_('Load: %s').replace('%s', name));
-                
-                const nMonitors = global.display.get_n_monitors();
-                const primaryMonitor = global.display.get_primary_monitor();
-
-                const primaryItem = new PopupMenu.PopupMenuItem(_('Send to Primary Monitor'));
-                primaryItem.connect('activate', () => this._deskManager.loadDesk(name, primaryMonitor));
-                subMenu.menu.addMenuItem(primaryItem);
-
-                for (let i = 0; i < nMonitors; i++) {
-                    if (i === primaryMonitor) continue;
-                    const item = new PopupMenu.PopupMenuItem(_('Send to Monitor %d').replace('%d', i + 1));
-                    item.connect('activate', () => this._deskManager.loadDesk(name, i));
-                    subMenu.menu.addMenuItem(item);
-                }
-
-                this.menu.addMenuItem(subMenu);
-            }
+            return;
         }
+
+        const desksSubMenu = new PopupMenu.PopupSubMenuMenuItem(_('Desks'));
+        for (const name of names) {
+            const deskItem = new PopupMenu.PopupMenuItem(name);
+            deskItem.connect('activate', () => {
+                this._deskManager.loadDesk(name, targetMonitor);
+            });
+            desksSubMenu.menu.addMenuItem(deskItem);
+        }
+        this.menu.addMenuItem(desksSubMenu);
+
+        const autostartDesk = config.autostartDesk || null;
+        const autostartLabel = autostartDesk
+            ? _('Autostart: %s').replace('%s', autostartDesk)
+            : _('Autostart on login');
+        const autostartSubMenu = new PopupMenu.PopupSubMenuMenuItem(autostartLabel);
+
+        const disabledItem = new PopupMenu.PopupMenuItem(_('Disabled'));
+        if (!autostartDesk)
+            disabledItem.setOrnament(PopupMenu.Ornament.CHECK);
+        disabledItem.connect('activate', () => {
+            this._deskManager.setConfig({ autostartDesk: null, autostartMonitor: -1 });
+        });
+        autostartSubMenu.menu.addMenuItem(disabledItem);
+
+        for (const name of names) {
+            const deskItem = new PopupMenu.PopupMenuItem(name);
+            if (autostartDesk === name)
+                deskItem.setOrnament(PopupMenu.Ornament.CHECK);
+            deskItem.connect('activate', () => {
+                this._deskManager.setConfig({
+                    autostartDesk: name,
+                    autostartMonitor: targetMonitor,
+                });
+            });
+            autostartSubMenu.menu.addMenuItem(deskItem);
+        }
+        this.menu.addMenuItem(autostartSubMenu);
     }
 
     destroy() {
@@ -653,6 +719,10 @@ class DeskManager {
             const currentDesks = await this.getDesks();
             if (currentDesks[nameToDelete]) {
                 delete currentDesks[nameToDelete];
+                if (currentDesks._config && currentDesks._config.autostartDesk === nameToDelete) {
+                    currentDesks._config.autostartDesk = null;
+                    currentDesks._config.autostartMonitor = -1;
+                }
                 await this.saveDesks(currentDesks);
             }
         }, async (nameToMove, direction) => {
@@ -960,6 +1030,22 @@ class DeskManager {
             window.move_resize_frame(true, targetX, targetY, targetW, targetH);
         }
     }
+
+    async checkAutostart() {
+        const config = await this.getConfig();
+        if (!config.autostartDesk)
+            return;
+
+        const desks = await this.getDesks();
+        if (!desks[config.autostartDesk])
+            return;
+
+        const monitor = config.autostartMonitor !== undefined ? config.autostartMonitor : -1;
+        this._addTimeout(2000, () => {
+            this.loadDesk(config.autostartDesk, monitor);
+            return GLib.SOURCE_REMOVE;
+        });
+    }
 }
 
 export default class SavedDesksExtension extends Extension {
@@ -968,6 +1054,7 @@ export default class SavedDesksExtension extends Extension {
         this._indicator = new SavedDesksIndicator(this._deskManager);
         this._deskManager.setIndicator(this._indicator);
         Main.panel.addToStatusArea('saved-desks-indicator', this._indicator);
+        this._deskManager.checkAutostart();
     }
 
     disable() {

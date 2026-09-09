@@ -43,3 +43,47 @@ msgstr "Zarządzaj biurkami"
 
 msgid "Load: %s"
 msgstr "Wczytaj: %s"
+
+msgid "Open in new workspace"
+msgstr "Otwórz w nowym biurku"
+
+msgid "Desks"
+msgstr "Biurka"
+
+msgid "Autostart on login"
+msgstr "Autostart po zalogowaniu"
+
+msgid "Disabled"
+msgstr "Wyłączony"
+
+msgid "Saved Layout (Default)"
+msgstr "Zapisany układ (domyślny)"
+
+msgid "Send to Primary Monitor"
+msgstr "Wyślij na główny monitor"
+
+msgid "Send to Monitor %d"
+msgstr "Wyślij na monitor %d"
+
+msgid "Target: Saved Layout"
+msgstr "Cel: Zapisany układ"
+
+msgid "Target: Primary Monitor"
+msgstr "Cel: Główny monitor"
+
+msgid "Target: Monitor %d"
+msgstr "Cel: Monitor %d"
+
+msgid "Primary Monitor"
+msgstr "Główny monitor"
+
+msgid "Monitor %d"
+msgstr "Monitor %d"
+
+msgid "Monitor %d (%s)"
+msgstr "Monitor %d (%s)"
+
+msgid "Autostart: %s"
+msgstr "Autostart: %s"
+
+
