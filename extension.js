@@ -220,6 +220,7 @@ class SavedDesksIndicator extends PanelMenu.Button {
     }
 
     async buildMenu() {
+        const wasOpen = this.menu.isOpen;
         this.menu.removeAll();
 
         const saveItem = new PopupMenu.PopupMenuItem(_('Save current desk'));
@@ -230,14 +231,18 @@ class SavedDesksIndicator extends PanelMenu.Button {
         manageItem.connect('activate', () => this._deskManager.manageDesks());
         this.menu.addMenuItem(manageItem);
 
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        const config = await this._deskManager?.getConfig();
+        if (this._destroyed || !this.menu || !this._deskManager || this.is_finalized?.() || this.menu.actor?.is_finalized?.())
+            return;
 
-        const config = await this._deskManager.getConfig();
         const openInNew = config.openInNewWorkspace !== false;
         const switchItem = new PopupMenu.PopupSwitchMenuItem(_('Open in new workspace'), openInNew);
         switchItem.connect('toggled', (item, state) => {
-            this._deskManager.setConfig({ openInNewWorkspace: state });
+            this._deskManager?.setConfig({ openInNewWorkspace: state });
         });
+        switchItem.activate = function (event) {
+            this.toggle();
+        };
         this.menu.addMenuItem(switchItem);
 
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
@@ -255,6 +260,7 @@ class SavedDesksIndicator extends PanelMenu.Button {
             }
 
             const targetSubMenu = new PopupMenu.PopupSubMenuMenuItem(targetLabel);
+            targetSubMenu.menu.itemActivated = () => {};
 
             const defaultTarget = new PopupMenu.PopupMenuItem(_('Saved Layout (Default)'));
             if (targetMonitor === -1)
@@ -289,8 +295,11 @@ class SavedDesksIndicator extends PanelMenu.Button {
 
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        const desks = await this._deskManager.getDesks();
-        const names = Object.keys(desks).filter(k => k !== '_config');
+        const desks = await this._deskManager?.getDesks();
+        if (this._destroyed || !this.menu || !this._deskManager || this.is_finalized?.() || this.menu.actor?.is_finalized?.())
+            return;
+
+        const names = Object.keys(desks || {}).filter(k => k !== '_config');
 
         if (names.length === 0) {
             const emptyItem = new PopupMenu.PopupMenuItem(_('No saved desks'));
@@ -303,6 +312,7 @@ class SavedDesksIndicator extends PanelMenu.Button {
         for (const name of names) {
             const deskItem = new PopupMenu.PopupMenuItem(name);
             deskItem.connect('activate', () => {
+                this.menu.close();
                 this._deskManager.loadDesk(name, targetMonitor);
             });
             desksSubMenu.menu.addMenuItem(deskItem);
@@ -314,6 +324,7 @@ class SavedDesksIndicator extends PanelMenu.Button {
             ? _('Autostart: %s').replace('%s', autostartDesk)
             : _('Autostart on login');
         const autostartSubMenu = new PopupMenu.PopupSubMenuMenuItem(autostartLabel);
+        autostartSubMenu.menu.itemActivated = () => {};
 
         const disabledItem = new PopupMenu.PopupMenuItem(_('Disabled'));
         if (!autostartDesk)
@@ -336,9 +347,13 @@ class SavedDesksIndicator extends PanelMenu.Button {
             autostartSubMenu.menu.addMenuItem(deskItem);
         }
         this.menu.addMenuItem(autostartSubMenu);
+
+        if (wasOpen && !this._destroyed && this.menu && !this.menu.isOpen)
+            this.menu.open();
     }
 
     destroy() {
+        this._destroyed = true;
         this._deskManager = null;
         super.destroy();
     }
@@ -346,6 +361,7 @@ class SavedDesksIndicator extends PanelMenu.Button {
 
 class DeskManager {
     constructor() {
+        this._destroyed = false;
         this._sources = [];
         this._pendingRestorations = [];
         this._activeDialog = null;
@@ -382,6 +398,7 @@ class DeskManager {
     }
 
     destroy() {
+        this._destroyed = true;
         if (this._windowCreatedId) {
             global.display.disconnect(this._windowCreatedId);
             this._windowCreatedId = null;
@@ -1032,16 +1049,25 @@ class DeskManager {
     }
 
     async checkAutostart() {
+        const lockPath = GLib.build_filenamev([GLib.get_user_runtime_dir(), 'saved-desks-autostart.lock']);
+        if (GLib.file_test(lockPath, GLib.FileTest.EXISTS))
+            return;
+
         const config = await this.getConfig();
-        if (!config.autostartDesk)
+        if (this._destroyed || !config || !config.autostartDesk)
             return;
 
         const desks = await this.getDesks();
-        if (!desks[config.autostartDesk])
+        if (this._destroyed || !desks || !desks[config.autostartDesk])
             return;
+
+        const lockFile = Gio.File.new_for_path(lockPath);
+        lockFile.replace_contents(new TextEncoder().encode('1'), null, false, Gio.FileCreateFlags.NONE, null);
 
         const monitor = config.autostartMonitor !== undefined ? config.autostartMonitor : -1;
         this._addTimeout(2000, () => {
+            if (this._destroyed)
+                return GLib.SOURCE_REMOVE;
             this.loadDesk(config.autostartDesk, monitor);
             return GLib.SOURCE_REMOVE;
         });
@@ -1057,6 +1083,7 @@ export default class SavedDesksExtension extends Extension {
         this._deskManager.checkAutostart();
     }
 
+    // unlock-dialog is included in session-modes so the extension remains loaded across lock screen transitions
     disable() {
         if (this._indicator) {
             this._indicator.destroy();
