@@ -209,12 +209,36 @@ class SavedDesksIndicator extends PanelMenu.Button {
     _init(deskManager) {
         super._init(0.0, 'SavedDesks');
         this._deskManager = deskManager;
+        this._deskNames = [];
+        this._targetMonitor = -1;
 
         const icon = new St.Icon({
             icon_name: 'computer-symbolic',
             style_class: 'system-status-icon',
         });
         this.add_child(icon);
+
+        this._keyPressId = this.menu.actor.connect('key-press-event', (_actor, event) => {
+            const state = event.get_state() & (Clutter.ModifierType.CONTROL_MASK | Clutter.ModifierType.MOD1_MASK | Clutter.ModifierType.SUPER_MASK);
+            if (state !== 0)
+                return Clutter.EVENT_PROPAGATE;
+
+            const symbol = event.get_key_symbol();
+            let idx = -1;
+            if (symbol >= Clutter.KEY_1 && symbol <= Clutter.KEY_9)
+                idx = symbol - Clutter.KEY_1;
+            else if (symbol >= Clutter.KEY_KP_1 && symbol <= Clutter.KEY_KP_9)
+                idx = symbol - Clutter.KEY_KP_1;
+
+            if (idx !== -1 && idx < this._deskNames.length) {
+                const name = this._deskNames[idx];
+                this.menu.close();
+                this._deskManager.loadDesk(name, this._targetMonitor);
+                return Clutter.EVENT_STOP;
+            }
+
+            return Clutter.EVENT_PROPAGATE;
+        });
 
         this.buildMenu();
     }
@@ -294,6 +318,8 @@ class SavedDesksIndicator extends PanelMenu.Button {
 
         const desks = await this._deskManager.getDesks();
         const names = Object.keys(desks || {}).filter(k => k !== '_config');
+        this._deskNames = names;
+        this._targetMonitor = targetMonitor;
 
         if (names.length === 0) {
             const emptyItem = new PopupMenu.PopupMenuItem(_('No saved desks'));
@@ -303,8 +329,10 @@ class SavedDesksIndicator extends PanelMenu.Button {
         }
 
         const desksSubMenu = new PopupMenu.PopupSubMenuMenuItem(_('Desks'));
-        for (const name of names) {
-            const deskItem = new PopupMenu.PopupMenuItem(name);
+        for (let i = 0; i < names.length; i++) {
+            const name = names[i];
+            const label = i < 9 ? `${i + 1}. ${name}` : name;
+            const deskItem = new PopupMenu.PopupMenuItem(label);
             deskItem.connect('activate', () => {
                 this.menu.close();
                 this._deskManager.loadDesk(name, targetMonitor);
@@ -347,7 +375,12 @@ class SavedDesksIndicator extends PanelMenu.Button {
     }
 
     destroy() {
+        if (this._keyPressId) {
+            this.menu.actor.disconnect(this._keyPressId);
+            this._keyPressId = null;
+        }
         this._deskManager = null;
+        this._deskNames = null;
         super.destroy();
     }
 });
