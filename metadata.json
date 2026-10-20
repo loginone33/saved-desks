@@ -2,8 +2,8 @@
   "name": "Saved Desks",
   "description": "Save, organize, and restore workspace window layouts. Supports session autostart on login, multi-monitor targeting, and custom desk ordering.",
   "uuid": "saved-desks@loginone",
-  "version": 21,
-  "shell-version": [ "45", "46", "47", "48", "49", "50" ],
+  "version": 22,
+  "shell-version": [ "45", "46", "47", "48", "49", "50", "51" ],
   "url": "https://github.com/loginone33/saved-desks",
   "donations": {
     "kofi": "loginone",

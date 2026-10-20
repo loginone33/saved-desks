@@ -22,9 +22,10 @@ function logError(msg, err = null) {
 
 const SaveDeskDialog = GObject.registerClass(
 class SaveDeskDialog extends ModalDialog.ModalDialog {
-    _init(onSave) {
+    _init(onSave, onDestroy) {
         super._init();
         this._onSave = onSave;
+        this._onDestroy = onDestroy;
 
         const content = new St.BoxLayout({
             vertical: true,
@@ -73,16 +74,21 @@ class SaveDeskDialog extends ModalDialog.ModalDialog {
 
     destroy() {
         this._onSave = null;
+        if (this._onDestroy) {
+            this._onDestroy();
+            this._onDestroy = null;
+        }
         super.destroy();
     }
 });
 
 const ManageDesksDialog = GObject.registerClass(
 class ManageDesksDialog extends ModalDialog.ModalDialog {
-    _init(desks, onDelete, onMove) {
+    _init(desks, onDelete, onMove, onDestroy) {
         super._init();
         this._onDelete = onDelete;
         this._onMove = onMove;
+        this._onDestroy = onDestroy;
 
         const content = new St.BoxLayout({
             vertical: true,
@@ -103,12 +109,13 @@ class ManageDesksDialog extends ModalDialog.ModalDialog {
             });
             content.add_child(emptyLabel);
         } else {
-            const scrollView = new St.ScrollView({
-                style: 'max-height: 240px;',
-            });
             const list = new St.BoxLayout({
                 vertical: true,
                 style: 'spacing: 6px;',
+            });
+            const scrollView = new St.ScrollView({
+                style: 'max-height: 240px;',
+                child: list,
             });
 
             for (const name of names) {
@@ -183,7 +190,6 @@ class ManageDesksDialog extends ModalDialog.ModalDialog {
                 list.add_child(row);
             }
 
-            scrollView.add_child(list);
             content.add_child(scrollView);
         }
 
@@ -200,6 +206,10 @@ class ManageDesksDialog extends ModalDialog.ModalDialog {
     destroy() {
         this._onDelete = null;
         this._onMove = null;
+        if (this._onDestroy) {
+            this._onDestroy();
+            this._onDestroy = null;
+        }
         super.destroy();
     }
 });
@@ -556,9 +566,12 @@ class DeskManager {
     saveCurrentWorkspace() {
         if (this._activeDialog) {
             this._activeDialog.close();
+            this._activeDialog = null;
         }
         this._activeDialog = new SaveDeskDialog(async (name) => {
             await this._doSaveCurrentWorkspace(name);
+        }, () => {
+            this._activeDialog = null;
         });
         this._activeDialog.open();
     }
@@ -754,6 +767,7 @@ class DeskManager {
     async manageDesks() {
         if (this._activeDialog) {
             this._activeDialog.close();
+            this._activeDialog = null;
         }
         const desks = await this.getDesks();
         this._activeDialog = new ManageDesksDialog(desks, async (nameToDelete) => {
@@ -785,6 +799,8 @@ class DeskManager {
                 newDesks[k] = currentDesks[k];
             }
             await this.saveDesks(newDesks);
+        }, () => {
+            this._activeDialog = null;
         });
         this._activeDialog.open();
     }
