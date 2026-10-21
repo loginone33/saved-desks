@@ -13,6 +13,13 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Clutter from 'gi://Clutter';
 
+const verticalLayout = shellVersion >= 48
+    ? { orientation: Clutter.Orientation.VERTICAL }
+    : { vertical: true };
+const horizontalLayout = shellVersion >= 48
+    ? { orientation: Clutter.Orientation.HORIZONTAL }
+    : { vertical: false };
+
 function logError(msg, err = null) {
     if (err)
         console.error(err, `[SavedDesks] ${msg}`);
@@ -28,7 +35,7 @@ class SaveDeskDialog extends ModalDialog.ModalDialog {
         this._onDestroy = onDestroy;
 
         const content = new St.BoxLayout({
-            orientation: Clutter.Orientation.VERTICAL,
+            ...verticalLayout,
             style: 'spacing: 12px; padding: 12px; min-width: 300px;',
         });
 
@@ -91,7 +98,7 @@ class ManageDesksDialog extends ModalDialog.ModalDialog {
         this._onDestroy = onDestroy;
 
         const content = new St.BoxLayout({
-            orientation: Clutter.Orientation.VERTICAL,
+            ...verticalLayout,
             style: 'spacing: 12px; padding: 12px; min-width: 320px;',
         });
 
@@ -110,7 +117,7 @@ class ManageDesksDialog extends ModalDialog.ModalDialog {
             content.add_child(emptyLabel);
         } else {
             const list = new St.BoxLayout({
-                orientation: Clutter.Orientation.VERTICAL,
+                ...verticalLayout,
                 style: 'spacing: 6px;',
             });
             const scrollView = new St.ScrollView({
@@ -120,7 +127,7 @@ class ManageDesksDialog extends ModalDialog.ModalDialog {
 
             for (const name of names) {
                 const row = new St.BoxLayout({
-                    orientation: Clutter.Orientation.HORIZONTAL,
+                    ...horizontalLayout,
                     style: 'spacing: 8px; padding: 4px;',
                 });
 
@@ -428,7 +435,7 @@ class DeskManager {
 
     _clearSources() {
         for (const id of this._sources)
-            GLib.Source.remove(id);
+            GLib.source_remove(id);
         this._sources = [];
     }
 
