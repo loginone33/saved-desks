@@ -28,7 +28,7 @@ class SaveDeskDialog extends ModalDialog.ModalDialog {
         this._onDestroy = onDestroy;
 
         const content = new St.BoxLayout({
-            vertical: true,
+            orientation: Clutter.Orientation.VERTICAL,
             style: 'spacing: 12px; padding: 12px; min-width: 300px;',
         });
 
@@ -91,7 +91,7 @@ class ManageDesksDialog extends ModalDialog.ModalDialog {
         this._onDestroy = onDestroy;
 
         const content = new St.BoxLayout({
-            vertical: true,
+            orientation: Clutter.Orientation.VERTICAL,
             style: 'spacing: 12px; padding: 12px; min-width: 320px;',
         });
 
@@ -110,7 +110,7 @@ class ManageDesksDialog extends ModalDialog.ModalDialog {
             content.add_child(emptyLabel);
         } else {
             const list = new St.BoxLayout({
-                vertical: true,
+                orientation: Clutter.Orientation.VERTICAL,
                 style: 'spacing: 6px;',
             });
             const scrollView = new St.ScrollView({
@@ -120,7 +120,7 @@ class ManageDesksDialog extends ModalDialog.ModalDialog {
 
             for (const name of names) {
                 const row = new St.BoxLayout({
-                    vertical: false,
+                    orientation: Clutter.Orientation.HORIZONTAL,
                     style: 'spacing: 8px; padding: 4px;',
                 });
 
