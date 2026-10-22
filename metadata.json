@@ -1,6 +1,6 @@
 {
   "name": "Saved Desks",
-  "description": "Save, organize, and restore workspace window layouts. Supports session autostart on login, multi-monitor targeting, and custom desk ordering.",
+  "description": "Save, organize, and restore workspace window layouts. Supports session autostart on login, multi-monitor targeting, custom ordering, and quick number keys (1–9).",
   "uuid": "saved-desks@loginone",
   "version": 23,
   "shell-version": [ "45", "46", "47", "48", "49", "50", "51" ],

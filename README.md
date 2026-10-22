@@ -15,6 +15,7 @@
   - **Open in New Workspace Toggle**: A quick switch in the menu lets you choose whether to load desks into a brand new workspace or directly into your current one.
 - **Autostart on Login**: Automatically launch and restore a chosen desk layout upon logging into GNOME.
 - **Target Monitor Selection**: Direct your saved desk to your Primary Monitor or any secondary display.
+- **Quick Number Keys (1–9)**: Open the panel menu and press `1` through `9` on your keyboard to instantly launch that desk layout based on your custom order.
 - **Manage Desks**: A simple dialog that allows you to delete saved desk templates or **reorder** them using the up/down arrows.
 - **Clean & Lightweight**: Native GNOME Shell implementation with zero external background processes, fully compliant with GNOME Review Guidelines.
 
@@ -40,7 +41,7 @@ Because of this requirement, the extension intentionally saves ONLY the windows 
 
 ## Compatibility
 
-- **GNOME Shell**: 45, 46, 47, 48, 49, 50
+- **GNOME Shell**: 45, 46, 47, 48, 49, 50, 51
 - **Session**: Wayland & X11
 
 ---
@@ -67,7 +68,8 @@ Because of this requirement, the extension intentionally saves ONLY the windows 
 
 1. **Saving**: Click the **Saved Desks** monitor icon in the top status panel and select **Save current desk**. Enter a descriptive name for your layout (e.g., *Work*, *Project*).
 2. **Restoring**: Open the panel menu and click **Load: [Desk Name]**. The extension creates a fresh workspace, launches the required applications, and positions them as saved.
-3. **Managing**: Select **Manage desks** from the panel menu to remove desks you no longer need.
+3. **Quick Launch**: When the panel menu is open, press number keys `1` through `9` on your keyboard to instantly trigger the corresponding desk without using the mouse.
+4. **Managing**: Select **Manage desks** from the panel menu to remove desks you no longer need.
 
 Configuration data is saved locally at `~/.config/gnome-saved-desks.json`.
 
